@@ -157,6 +157,12 @@ export const attemptQuiz = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Quiz not found' });
     }
 
+    // Check if already attempted
+    const existingAttempt = await QuizAttempt.findOne({ userId: req.user.id, quizId: quiz._id });
+    if (existingAttempt) {
+      return res.status(400).json({ success: false, message: 'You have already attempted this quiz.' });
+    }
+
     let correctCount = 0;
     const gradedAnswers = [];
 
@@ -293,3 +299,29 @@ export const getQuizAttemptById = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Get all attempts for a specific quiz
+// @route   GET /api/quizzes/:id/attempts
+// @access  Private (Teacher/Admin)
+export const getQuizAttempts = async (req, res, next) => {
+  try {
+    const quiz = await Quiz.findById(req.params.id);
+    if (!quiz) {
+      return res.status(404).json({ success: false, message: 'Quiz not found' });
+    }
+
+    // Verify ownership
+    if (quiz.creatorId.toString() !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Not authorized to view attempts for this quiz' });
+    }
+
+    const attempts = await QuizAttempt.find({ quizId: req.params.id })
+      .populate('userId', 'name email college')
+      .sort({ score: -1, timeTaken: 1 });
+
+    res.status(200).json({ success: true, count: attempts.length, attempts });
+  } catch (error) {
+    next(error);
+  }
+};
+

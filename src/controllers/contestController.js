@@ -221,3 +221,27 @@ export const submitContestChallenge = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Delete/Cancel a contest
+// @route   DELETE /api/contests/:id
+// @access  Private (Teacher/Admin)
+export const deleteContest = async (req, res, next) => {
+  try {
+    const contest = await Contest.findById(req.params.id);
+    if (!contest) {
+      return res.status(404).json({ success: false, message: 'Contest not found' });
+    }
+
+    // Check if user is the creator or an admin
+    if (contest.creatorId.toString() !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Not authorized to cancel this contest' });
+    }
+
+    await contest.deleteOne();
+
+    res.status(200).json({ success: true, message: 'Contest cancelled successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+

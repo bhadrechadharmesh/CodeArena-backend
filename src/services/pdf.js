@@ -55,9 +55,9 @@ export const generateScorecardPDF = (res, attempt, user, quiz) => {
      .fontSize(11)
      .moveDown(0.5);
 
-  doc.text(`Quiz Title: ${quiz.title}`);
-  doc.text(`Category: ${quiz.category}`);
-  doc.text(`Difficulty: ${quiz.difficulty.toUpperCase()}`);
+  doc.text(`Quiz Title: ${quiz?.title || 'N/A (Deleted Quiz)'}`);
+  doc.text(`Category: ${quiz?.category || 'N/A'}`);
+  doc.text(`Difficulty: ${quiz?.difficulty ? quiz.difficulty.toUpperCase() : 'N/A'}`);
 
   doc.moveDown(2);
 

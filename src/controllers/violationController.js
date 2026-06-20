@@ -5,12 +5,13 @@ import Violation from '../models/Violation.js';
 // @access  Private
 export const logViolation = async (req, res, next) => {
   try {
-    const { contestId, quizId, violationType, details } = req.body;
+    const { contestId, quizId, challengeId, violationType, details } = req.body;
 
     const violation = await Violation.create({
       userId: req.user.id,
       contestId: contestId || null,
       quizId: quizId || null,
+      challengeId: challengeId || null,
       violationType,
       details: details || '',
     });
@@ -32,6 +33,7 @@ export const getMyViolations = async (req, res, next) => {
     const violations = await Violation.find({ userId: req.user.id })
       .populate('contestId', 'title')
       .populate('quizId', 'title')
+      .populate('challengeId', 'title')
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -53,6 +55,7 @@ export const getAllViolations = async (req, res, next) => {
       .populate('userId', 'name email college')
       .populate('contestId', 'title')
       .populate('quizId', 'title')
+      .populate('challengeId', 'title')
       .sort({ createdAt: -1 });
 
     res.status(200).json({

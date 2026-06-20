@@ -4,7 +4,8 @@ import {
   getContests,
   getContestById,
   joinContest,
-  submitContestChallenge
+  submitContestChallenge,
+  deleteContest
 } from '../controllers/contestController.js';
 import { protect, authorize } from '../middlewares/auth.js';
 
@@ -15,7 +16,8 @@ router.route('/')
   .post(protect, authorize('teacher', 'admin'), createContest);
 
 router.route('/:id')
-  .get(protect, getContestById);
+  .get(protect, getContestById)
+  .delete(protect, authorize('teacher', 'admin'), deleteContest);
 
 router.post('/:id/join', protect, joinContest);
 router.post('/:id/submit-challenge/:challengeId', protect, submitContestChallenge);

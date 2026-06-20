@@ -16,6 +16,11 @@ const violationSchema = new mongoose.Schema({
     ref: 'Quiz',
     default: null
   },
+  challengeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Challenge',
+    default: null
+  },
   violationType: {
     type: String,
     enum: ['exit_fullscreen', 'tab_switch', 'multiple_faces', 'no_face'],

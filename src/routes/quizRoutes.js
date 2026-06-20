@@ -7,7 +7,8 @@ import {
   deleteQuiz,
   attemptQuiz,
   getMyQuizAttempts,
-  getQuizAttemptById
+  getQuizAttemptById,
+  getQuizAttempts
 } from '../controllers/quizController.js';
 import { protect, authorize } from '../middlewares/auth.js';
 import { generateScorecardPDF } from '../services/pdf.js';
@@ -47,6 +48,8 @@ router.get('/attempts/:id/pdf', protect, async (req, res, next) => {
     next(error);
   }
 });
+
+router.get('/:id/attempts', protect, authorize('teacher', 'admin'), getQuizAttempts);
 
 router.route('/:id')
   .get(protect, getQuizById)
