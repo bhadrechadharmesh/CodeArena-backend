@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import {
   createQuiz,
   getQuizzes,
@@ -8,13 +9,17 @@ import {
   attemptQuiz,
   getMyQuizAttempts,
   getQuizAttemptById,
-  getQuizAttempts
+  getQuizAttempts,
+  importQuizQuestions
 } from '../controllers/quizController.js';
 import { protect, authorize } from '../middlewares/auth.js';
 import { generateScorecardPDF } from '../services/pdf.js';
 import QuizAttempt from '../models/QuizAttempt.js';
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
+
+router.post('/import', protect, authorize('teacher', 'admin'), upload.single('file'), importQuizQuestions);
 
 router.route('/')
   .get(protect, getQuizzes)

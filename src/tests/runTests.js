@@ -297,6 +297,26 @@ const runAllTests = async () => {
     console.log('✓ Test 5: Submit quiz inside a contest passed.');
     passed++;
 
+    // Test 6: Question File Parsing
+    console.log('\nRunning Test 6: Question File Parser...');
+    const { parseTextToQuestions } = await import('../services/questionParser.js');
+    const parserSample = `
+1. What is Node.js?
+A) A browser
+B) A JavaScript runtime environment
+C) A programming language
+D) A web design CSS framework
+Answer: B
+Explanation: Node.js is an open-source, cross-platform JavaScript runtime.
+    `;
+    const parsed = parseTextToQuestions(parserSample);
+    assert.strictEqual(parsed.length, 1, 'Should parse exactly 1 question');
+    assert.strictEqual(parsed[0].questionType, 'mcq', 'Should detect MCQ question type');
+    assert.strictEqual(parsed[0].correctOption, 1, 'Should detect correct option B (index 1)');
+    assert.ok(parsed[0].explanation.includes('runtime'), 'Should extract explanation');
+    console.log('✓ Test 6: Question file parser passed.');
+    passed++;
+
     // Cleanup
     await User.deleteOne({ email: 'test_student@codearena.com' });
 

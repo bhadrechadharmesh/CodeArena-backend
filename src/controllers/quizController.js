@@ -3,6 +3,7 @@ import QuizAttempt from '../models/QuizAttempt.js';
 import User from '../models/User.js';
 import Violation from '../models/Violation.js';
 import Contest from '../models/Contest.js';
+import { parseFileContent } from '../services/questionParser.js';
 
 // @desc    Create a quiz
 // @route   POST /api/quizzes
@@ -338,6 +339,27 @@ export const getQuizAttempts = async (req, res, next) => {
       .sort({ score: -1, timeTaken: 1 });
 
     res.status(200).json({ success: true, count: attempts.length, attempts });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Import quiz questions from PDF or TXT
+// @route   POST /api/quizzes/import
+// @access  Private (Teacher/Admin)
+export const importQuizQuestions = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Please upload a file' });
+    }
+
+    const parsedQuestions = await parseFileContent(req.file.buffer, req.file.mimetype);
+
+    res.status(200).json({
+      success: true,
+      count: parsedQuestions.length,
+      questions: parsedQuestions
+    });
   } catch (error) {
     next(error);
   }
