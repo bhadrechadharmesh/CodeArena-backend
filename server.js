@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
 import http from 'http';
 import { Server } from 'socket.io';
 import app from './src/app.js';
