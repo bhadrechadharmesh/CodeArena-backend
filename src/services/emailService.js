@@ -1,9 +1,24 @@
 import nodemailer from 'nodemailer';
-import dns from 'dns';
-dns.setDefaultResultOrder('ipv4first');
-
+import { promises as dnsPromises } from 'dns';
 
 let transporter = null;
+
+// Resolve hostname to IPv4 manually to bypass IPv6 network issues
+const resolveToIPv4 = async (hostname) => {
+  try {
+    if (!hostname) return hostname;
+    // If it's already an IP address, return it
+    if (/^[0-9.]+$/.test(hostname)) return hostname;
+    const addresses = await dnsPromises.resolve4(hostname);
+    if (addresses && addresses.length > 0) {
+      console.log(`Resolved SMTP host ${hostname} to IPv4: ${addresses[0]}`);
+      return addresses[0];
+    }
+  } catch (err) {
+    console.warn(`DNS resolution to IPv4 failed for ${hostname}:`, err.message);
+  }
+  return hostname;
+};
 
 // Initialize the email transporter
 const getTransporter = async () => {
@@ -17,15 +32,18 @@ const getTransporter = async () => {
 
   if (host && user && pass) {
     console.log('Using configured SMTP transporter for emails.');
+    const resolvedHost = await resolveToIPv4(host);
     transporter = nodemailer.createTransport({
-      host,
+      host: resolvedHost,
       port: port || 587,
       secure: secure,
       auth: {
         user,
         pass,
       },
-      family:4,
+      tls: {
+        servername: host, // Crucial: maintains SSL validation against original domain
+      },
     });
   } else {
     console.log('No SMTP config found. Generating Ethereal test email account...');
