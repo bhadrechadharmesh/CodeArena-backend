@@ -1,6 +1,6 @@
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 
 /**
  * Parses questions from an uploaded file (PDF or TXT)
@@ -12,8 +12,13 @@ export const parseFileContent = async (fileBuffer, mimeType) => {
   let text = '';
   
   if (mimeType === 'application/pdf') {
-    const data = await pdfParse(fileBuffer);
-    text = data.text;
+    const parser = new PDFParse({ data: fileBuffer });
+    try {
+      const data = await parser.getText();
+      text = data.text;
+    } finally {
+      await parser.destroy();
+    }
   } else {
     // Treat as plain text / txt
     text = fileBuffer.toString('utf8');
