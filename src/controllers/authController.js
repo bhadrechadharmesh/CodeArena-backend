@@ -1,5 +1,11 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import { sendOTPEmail } from '../services/emailService.js';
+
+// Helper to generate a 6-digit random number OTP
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
 
 // Helper to generate JWT Token
 const generateToken = (id) => {
@@ -15,39 +21,55 @@ export const registerUser = async (req, res, next) => {
   try {
     const { name, email, password, role, college, bio } = req.body;
 
-    // Check if user exists
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ success: false, message: 'User already exists with this email' });
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: 'Please fill in all required fields' });
     }
 
-    // Create user
-    const user = await User.create({
-      name,
-      email,
-      password,
-      role: role || 'student',
-      college: college || '',
-      bio: bio || '',
-    });
+    // Check if user exists
+    const userExists = await User.findOne({ email });
+    let user;
 
-    const token = generateToken(user._id);
+    if (userExists) {
+      // If user exists and is already verified, prevent registration
+      if (userExists.isVerified) {
+        return res.status(400).json({ success: false, message: 'User already exists with this email' });
+      }
 
-    res.status(201).json({
+      // If user exists but is NOT verified, update registration details
+      userExists.name = name;
+      userExists.password = password; // Pre-save hook will hash it
+      userExists.role = role || 'student';
+      userExists.college = college || '';
+      userExists.bio = bio || '';
+      user = userExists;
+    } else {
+      // Create new unverified user
+      user = new User({
+        name,
+        email,
+        password,
+        role: role || 'student',
+        college: college || '',
+        bio: bio || '',
+        isVerified: false,
+      });
+    }
+
+    // Generate OTP
+    const otp = generateOTP();
+    user.otp = otp;
+    user.otpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
+
+    await user.save();
+
+    // Send verification email
+    await sendOTPEmail(user.email, otp, user.name);
+
+    res.status(200).json({
       success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        college: user.college,
-        bio: user.bio,
-        totalPoints: user.totalPoints,
-        streak: user.streak,
-        contestsParticipated: user.contestsParticipated,
-        quizzesAttempted: user.quizzesAttempted,
-      },
+      requiresVerification: true,
+      email: user.email,
+      message: 'Registration successful! An OTP code has been sent to your email.',
     });
   } catch (error) {
     next(error);
@@ -78,6 +100,24 @@ export const loginUser = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
+    // Check if email is verified
+    if (!user.isVerified) {
+      // Generate and send a new OTP
+      const otp = generateOTP();
+      user.otp = otp;
+      user.otpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
+      await user.save();
+
+      await sendOTPEmail(user.email, otp, user.name);
+
+      return res.status(400).json({
+        success: false,
+        requiresVerification: true,
+        email: user.email,
+        message: 'Your email is not verified. A new OTP has been sent to your email.',
+      });
+    }
+
     const token = generateToken(user._id);
 
     res.status(200).json({
@@ -95,6 +135,116 @@ export const loginUser = async (req, res, next) => {
         contestsParticipated: user.contestsParticipated,
         quizzesAttempted: user.quizzesAttempted,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Verify OTP
+// @route   POST /api/auth/verify-otp
+// @access  Public
+export const verifyOtp = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: 'Please provide email and OTP code' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (user.isVerified) {
+      // If already verified, log them in immediately
+      const token = generateToken(user._id);
+      return res.status(200).json({
+        success: true,
+        message: 'Email is already verified',
+        token,
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          college: user.college,
+          bio: user.bio,
+          totalPoints: user.totalPoints,
+          streak: user.streak,
+          contestsParticipated: user.contestsParticipated,
+          quizzesAttempted: user.quizzesAttempted,
+        }
+      });
+    }
+
+    // Verify OTP matching and expiry
+    if (user.otp !== otp || !user.otpExpiry || user.otpExpiry < Date.now()) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    }
+
+    // Mark as verified
+    user.isVerified = true;
+    user.otp = null;
+    user.otpExpiry = null;
+    await user.save();
+
+    const token = generateToken(user._id);
+
+    res.status(200).json({
+      success: true,
+      message: 'Email verified successfully',
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        college: user.college,
+        bio: user.bio,
+        totalPoints: user.totalPoints,
+        streak: user.streak,
+        contestsParticipated: user.contestsParticipated,
+        quizzesAttempted: user.quizzesAttempted,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Resend OTP
+// @route   POST /api/auth/resend-otp
+// @access  Public
+export const resendOtp = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Please provide an email address' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (user.isVerified) {
+      return res.status(400).json({ success: false, message: 'Email is already verified' });
+    }
+
+    const otp = generateOTP();
+    user.otp = otp;
+    user.otpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
+    await user.save();
+
+    // Send email
+    await sendOTPEmail(user.email, otp, user.name);
+
+    res.status(200).json({
+      success: true,
+      message: 'OTP resent successfully to your email',
     });
   } catch (error) {
     next(error);

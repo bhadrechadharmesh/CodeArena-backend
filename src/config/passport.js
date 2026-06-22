@@ -35,6 +35,7 @@ export const configurePassport = () => {
             if (user) {
               // Update existing user with googleId
               user.googleId = profile.id;
+              user.isVerified = true;
               if (!user.avatar) {
                 user.avatar = profile.photos?.[0]?.value || '';
               }
@@ -47,6 +48,7 @@ export const configurePassport = () => {
                 googleId: profile.id,
                 avatar: profile.photos?.[0]?.value || '',
                 role: 'student',
+                isVerified: true,
               });
             }
           }

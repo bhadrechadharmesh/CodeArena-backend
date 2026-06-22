@@ -27,7 +27,8 @@ const seedData = async () => {
       password: 'password123',
       role: 'admin',
       college: 'CodeArena Tech',
-      bio: 'Platform System Administrator'
+      bio: 'Platform System Administrator',
+      isVerified: true
     });
 
     const teacher = await User.create({
@@ -36,7 +37,8 @@ const seedData = async () => {
       password: 'password123',
       role: 'teacher',
       college: 'Stark Academy',
-      bio: 'Computer Science Professor'
+      bio: 'Computer Science Professor',
+      isVerified: true
     });
 
     const student = await User.create({
@@ -49,7 +51,8 @@ const seedData = async () => {
       totalPoints: 250,
       streak: 5,
       contestsParticipated: 2,
-      quizzesAttempted: 3
+      quizzesAttempted: 3,
+      isVerified: true
     });
 
     console.log('Seeding default quizzes...');

@@ -8,6 +8,7 @@ import Violation from '../models/Violation.js';
 import Contest from '../models/Contest.js';
 import { deleteQuiz } from '../controllers/quizController.js';
 import { submitContestQuiz } from '../controllers/contestController.js';
+import { registerUser, loginUser, verifyOtp, resendOtp } from '../controllers/authController.js';
 import { connectDB, disconnectDB } from '../config/db.js';
 import { executeSubmission } from '../services/judge.js';
 
@@ -29,7 +30,8 @@ const runAllTests = async () => {
       email: 'test_student@codearena.com',
       password: 'mypassword123',
       role: 'student',
-      college: 'Test University'
+      college: 'Test University',
+      isVerified: true
     });
 
     assert.ok(user.password !== 'mypassword123', 'Password should be encrypted (hashed)');
@@ -89,7 +91,8 @@ const runAllTests = async () => {
       name: 'Test Teacher',
       email: 'test_teacher@codearena.com',
       password: 'teacherpassword123',
-      role: 'teacher'
+      role: 'teacher',
+      isVerified: true
     });
 
     // Create a mock quiz
@@ -319,6 +322,114 @@ Explanation: Node.js is an open-source, cross-platform JavaScript runtime.
 
     // Cleanup
     await User.deleteOne({ email: 'test_student@codearena.com' });
+
+    // Test 7: Email OTP Registration & Verification Flow
+    console.log('\nRunning Test 7: Email OTP Registration & Verification Flow...');
+    const testEmail = 'verify_test_student@codearena.com';
+    await User.deleteMany({ email: testEmail });
+
+    // Mock response helpers
+    const makeMockRes = () => {
+      let statusVal = null;
+      let jsonVal = null;
+      return {
+        status(code) {
+          statusVal = code;
+          return this;
+        },
+        json(payload) {
+          jsonVal = payload;
+          return this;
+        },
+        getStatus: () => statusVal,
+        getJson: () => jsonVal,
+      };
+    };
+
+    // 1. Submit a registration request
+    const registerReq = {
+      body: {
+        name: 'Verify Test Student',
+        email: testEmail,
+        password: 'studentpassword123',
+        role: 'student',
+        college: 'Test College',
+      },
+    };
+    const registerRes = makeMockRes();
+    await registerUser(registerReq, registerRes, (err) => { if (err) throw err; });
+
+    assert.strictEqual(registerRes.getStatus(), 200, 'Registration should return status 200');
+    assert.strictEqual(registerRes.getJson().success, true, 'Registration response should indicate success');
+    assert.strictEqual(registerRes.getJson().requiresVerification, true, 'Registration response should require verification');
+
+    // Verify user exists in DB and is unverified
+    let testUser = await User.findOne({ email: testEmail });
+    assert.ok(testUser, 'User should exist in database');
+    assert.strictEqual(testUser.isVerified, false, 'User should not be verified initially');
+    assert.ok(testUser.otp, 'User should have an OTP generated');
+
+    // 2. Try to login as unverified user
+    const loginReq = {
+      body: {
+        email: testEmail,
+        password: 'studentpassword123',
+      },
+    };
+    const loginRes = makeMockRes();
+    await loginUser(loginReq, loginRes, (err) => { if (err) throw err; });
+
+    assert.strictEqual(loginRes.getStatus(), 400, 'Login should fail with 400 for unverified email');
+    assert.strictEqual(loginRes.getJson().requiresVerification, true, 'Login should return requiresVerification: true');
+
+    // Retrieve updated OTP after failed login attempt
+    testUser = await User.findOne({ email: testEmail });
+    const secondOtp = testUser.otp;
+    assert.ok(secondOtp, 'User should have a new OTP generated after login attempt');
+
+    // 3. Try to verify OTP with invalid code
+    const invalidVerifyReq = {
+      body: {
+        email: testEmail,
+        otp: '000000', // incorrect code
+      },
+    };
+    const invalidVerifyRes = makeMockRes();
+    await verifyOtp(invalidVerifyReq, invalidVerifyRes, (err) => { if (err) throw err; });
+
+    assert.strictEqual(invalidVerifyRes.getStatus(), 400, 'Verification with invalid OTP should fail');
+
+    // 4. Verify OTP with correct code
+    const correctVerifyReq = {
+      body: {
+        email: testEmail,
+        otp: secondOtp,
+      },
+    };
+    const correctVerifyRes = makeMockRes();
+    await verifyOtp(correctVerifyReq, correctVerifyRes, (err) => { if (err) throw err; });
+
+    assert.strictEqual(correctVerifyRes.getStatus(), 200, 'Verification with correct OTP should succeed');
+    assert.strictEqual(correctVerifyRes.getJson().success, true, 'Verification should return success');
+    assert.ok(correctVerifyRes.getJson().token, 'Successful verification should return token');
+
+    // Verify DB user is now verified
+    testUser = await User.findOne({ email: testEmail });
+    assert.strictEqual(testUser.isVerified, true, 'User should be marked as verified in DB');
+    assert.strictEqual(testUser.otp, null, 'OTP should be cleared in DB');
+
+    // 5. Try to login again as verified user
+    const verifiedLoginRes = makeMockRes();
+    await loginUser(loginReq, verifiedLoginRes, (err) => { if (err) throw err; });
+
+    assert.strictEqual(verifiedLoginRes.getStatus(), 200, 'Login should succeed now that user is verified');
+    assert.ok(verifiedLoginRes.getJson().token, 'Login should return a token');
+
+    // Cleanup
+    await User.deleteOne({ email: testEmail });
+
+    console.log('✓ Test 7: Email OTP Verification flow passed.');
+    passed++;
 
     console.log(`\n=== TEST SUITE COMPLETED: ${passed} Passed, ${failed} Failed ===`);
   } catch (error) {
