@@ -2,6 +2,7 @@ import Contest from '../models/Contest.js';
 import CodingChallenge from '../models/CodingChallenge.js';
 import Quiz from '../models/Quiz.js';
 import User from '../models/User.js';
+import QuizAttempt from '../models/QuizAttempt.js';
 import { executeSubmission } from '../services/judge.js';
 import { sendLeaderboardUpdate } from '../sockets/contestSocket.js';
 
@@ -240,6 +241,168 @@ export const deleteContest = async (req, res, next) => {
     await contest.deleteOne();
 
     res.status(200).json({ success: true, message: 'Contest cancelled successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Submit quiz attempt inside a contest
+// @route   POST /api/contests/:id/submit-quiz/:quizId
+// @access  Private (Student)
+export const submitContestQuiz = async (req, res, next) => {
+  try {
+    const { answers, timeTaken } = req.body;
+    const contest = await Contest.findById(req.params.id);
+
+    if (!contest) {
+      return res.status(404).json({ success: false, message: 'Contest not found' });
+    }
+
+    const now = new Date();
+    if (now < new Date(contest.startTime) || now > new Date(contest.endTime)) {
+      return res.status(400).json({ success: false, message: 'Contest is not active' });
+    }
+
+    // Verify quiz is part of the contest
+    if (!contest.quizzes.includes(req.params.quizId)) {
+      return res.status(400).json({ success: false, message: 'Quiz is not part of this contest' });
+    }
+
+    const quiz = await Quiz.findById(req.params.quizId);
+    if (!quiz) {
+      return res.status(404).json({ success: false, message: 'Quiz not found' });
+    }
+
+    // Check if already attempted
+    const existingAttempt = await QuizAttempt.findOne({ userId: req.user.id, quizId: quiz._id });
+    if (existingAttempt) {
+      return res.status(400).json({ success: false, message: 'You have already attempted this quiz.' });
+    }
+
+    let correctCount = 0;
+    const gradedAnswers = [];
+
+    // Calculate score
+    quiz.questions.forEach((question) => {
+      const userAns = answers.find(
+        (ans) => ans.questionId.toString() === question._id.toString()
+      );
+
+      let isCorrect = false;
+      let selectedOption = null;
+      let selectedOptions = [];
+      let booleanAnswer = null;
+      let textAnswer = '';
+
+      if (userAns) {
+        selectedOption = userAns.selectedOption;
+        selectedOptions = userAns.selectedOptions || [];
+        booleanAnswer = userAns.booleanAnswer;
+        textAnswer = userAns.textAnswer || '';
+
+        // MCQ grading
+        if (question.questionType === 'mcq') {
+          isCorrect = userAns.selectedOption === question.correctOption;
+        }
+        // Multiple Correct grading
+        else if (question.questionType === 'multiple_correct') {
+          const uAns = [...selectedOptions].sort();
+          const cAns = [...question.correctAnswers].sort();
+          isCorrect = uAns.length === cAns.length && uAns.every((val, index) => val === cAns[index]);
+        }
+        // True / False grading
+        else if (question.questionType === 'true_false') {
+          isCorrect = userAns.booleanAnswer === question.answer;
+        }
+        // Fill in the blank grading
+        else if (question.questionType === 'fill_blank') {
+          isCorrect = userAns.textAnswer?.trim().toLowerCase() === question.correctAnswerText?.trim().toLowerCase();
+        }
+      }
+
+      if (isCorrect) {
+        correctCount++;
+      }
+
+      gradedAnswers.push({
+        questionId: question._id,
+        selectedOption,
+        selectedOptions,
+        booleanAnswer,
+        textAnswer,
+        isCorrect
+      });
+    });
+
+    const totalQuestions = quiz.questions.length;
+    const accuracy = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
+    const marksPerQuestion = quiz.totalMarks / (totalQuestions || 1);
+    const score = Math.round(correctCount * marksPerQuestion);
+
+    // Save attempt
+    const attempt = await QuizAttempt.create({
+      userId: req.user.id,
+      quizId: quiz._id,
+      answers: gradedAnswers,
+      score,
+      accuracy,
+      timeTaken
+    });
+
+    // Update user statistics
+    const user = await User.findById(req.user.id);
+    if (user) {
+      user.quizzesAttempted += 1;
+      user.totalPoints += score;
+      user.streak += 1;
+      await user.save();
+    }
+
+    // Find or create user's leaderboard entry
+    let entry = contest.leaderboard.find(
+      (e) => e.userId.toString() === req.user.id.toString()
+    );
+
+    if (!entry) {
+      contest.leaderboard.push({
+        userId: req.user.id,
+        score: 0,
+        penaltyTime: 0,
+        submissionsCount: 0,
+        solvedChallenges: [],
+        completedQuizzes: []
+      });
+      entry = contest.leaderboard[contest.leaderboard.length - 1];
+    }
+
+    if (!entry.completedQuizzes.includes(quiz._id)) {
+      entry.completedQuizzes.push(quiz._id);
+      entry.score += score;
+      
+      // Calculate penalty: minutes elapsed since contest start
+      const minutesElapsed = Math.floor((now - new Date(contest.startTime)) / 60000);
+      entry.penaltyTime += minutesElapsed;
+
+      await contest.save();
+
+      // Broadcast WebSocket updates
+      if (req.io) {
+        await sendLeaderboardUpdate(req.io, contest._id);
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      attempt: {
+        id: attempt._id,
+        score,
+        accuracy,
+        timeTaken,
+        correctCount,
+        totalQuestions,
+        submittedAt: attempt.submittedAt
+      }
+    });
   } catch (error) {
     next(error);
   }

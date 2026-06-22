@@ -1,6 +1,8 @@
 import Quiz from '../models/Quiz.js';
 import QuizAttempt from '../models/QuizAttempt.js';
 import User from '../models/User.js';
+import Violation from '../models/Violation.js';
+import Contest from '../models/Contest.js';
 
 // @desc    Create a quiz
 // @route   POST /api/quizzes
@@ -137,6 +139,22 @@ export const deleteQuiz = async (req, res, next) => {
     if (quiz.creatorId.toString() !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Not authorized to delete this quiz' });
     }
+
+    // Delete associated quiz attempts
+    await QuizAttempt.deleteMany({ quizId: quiz._id });
+
+    // Delete associated violations
+    await Violation.deleteMany({ quizId: quiz._id });
+
+    // Remove quiz from contests and contest leaderboards
+    await Contest.updateMany(
+      { quizzes: quiz._id },
+      { $pull: { quizzes: quiz._id } }
+    );
+    await Contest.updateMany(
+      { 'leaderboard.completedQuizzes': quiz._id },
+      { $pull: { 'leaderboard.$[].completedQuizzes': quiz._id } }
+    );
 
     await quiz.deleteOne();
     res.status(200).json({ success: true, message: 'Quiz deleted successfully' });

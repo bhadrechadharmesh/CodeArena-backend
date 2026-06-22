@@ -1,8 +1,13 @@
 import assert from 'assert';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Quiz from '../models/Quiz.js';
 import QuizAttempt from '../models/QuizAttempt.js';
+import Violation from '../models/Violation.js';
+import Contest from '../models/Contest.js';
+import { deleteQuiz } from '../controllers/quizController.js';
+import { submitContestQuiz } from '../controllers/contestController.js';
 import { connectDB, disconnectDB } from '../config/db.js';
 import { executeSubmission } from '../services/judge.js';
 
@@ -76,6 +81,222 @@ const runAllTests = async () => {
     console.log('✓ Test 3: Judge execution passed.');
     passed++;
 
+    // Test 4: Quiz Delete Cascade Cleanup
+    console.log('\nRunning Test 4: Quiz Deletion Cascade Cleanup...');
+    
+    // Create a mock teacher
+    const teacher = await User.create({
+      name: 'Test Teacher',
+      email: 'test_teacher@codearena.com',
+      password: 'teacherpassword123',
+      role: 'teacher'
+    });
+
+    // Create a mock quiz
+    const quiz = await Quiz.create({
+      title: 'Delete Cascade Test Quiz',
+      description: 'Will be deleted to test cascade behavior',
+      category: 'javascript',
+      creatorId: teacher._id,
+      duration: 30,
+      totalMarks: 100,
+      questions: []
+    });
+
+    // Create a mock attempt
+    const quizAttempt = await QuizAttempt.create({
+      userId: user._id,
+      quizId: quiz._id,
+      score: 80,
+      accuracy: 80,
+      timeTaken: 120,
+      answers: []
+    });
+
+    // Create a mock violation
+    const violation = await Violation.create({
+      userId: user._id,
+      quizId: quiz._id,
+      violationType: 'tab_switch',
+      details: 'Switched tabs during test'
+    });
+
+    // Create a mock contest containing the quiz
+    const contest = await Contest.create({
+      title: 'Cascade Test Contest',
+      startTime: new Date(),
+      endTime: new Date(Date.now() + 3600000),
+      creatorId: teacher._id,
+      quizzes: [quiz._id],
+      leaderboard: [
+        {
+          userId: user._id,
+          score: 100,
+          completedQuizzes: [quiz._id]
+        }
+      ]
+    });
+
+    // Verify they exist
+    let foundQuiz = await Quiz.findById(quiz._id);
+    let foundAttempt = await QuizAttempt.findById(quizAttempt._id);
+    let foundViolation = await Violation.findById(violation._id);
+    let foundContest = await Contest.findById(contest._id);
+
+    assert.ok(foundQuiz, 'Quiz should exist before delete');
+    assert.ok(foundAttempt, 'QuizAttempt should exist before delete');
+    assert.ok(foundViolation, 'Violation should exist before delete');
+    assert.strictEqual(foundContest.quizzes.length, 1, 'Contest should contain quiz before delete');
+    assert.strictEqual(foundContest.leaderboard[0].completedQuizzes.length, 1, 'Contest leaderboard entry should contain quiz before delete');
+
+    // Simulate deleteQuiz request/response
+    const req = {
+      params: { id: quiz._id.toString() },
+      user: { id: teacher._id.toString(), role: 'teacher' }
+    };
+    
+    let responseStatus = null;
+    let responseJson = null;
+    const res = {
+      status(code) {
+        responseStatus = code;
+        return this;
+      },
+      json(payload) {
+        responseJson = payload;
+        return this;
+      }
+    };
+
+    let nextCalled = false;
+    const next = (err) => {
+      if (err) nextCalled = true;
+    };
+
+    await deleteQuiz(req, res, next);
+
+    assert.strictEqual(nextCalled, false, 'deleteQuiz should not error out');
+    assert.strictEqual(responseStatus, 200, 'deleteQuiz should respond with 200 status');
+    assert.strictEqual(responseJson.success, true, 'deleteQuiz response should indicate success');
+
+    // Verify cascade deletion and cleanups
+    const quizAfterDelete = await Quiz.findById(quiz._id);
+    const attemptAfterDelete = await QuizAttempt.findById(quizAttempt._id);
+    const violationAfterDelete = await Violation.findById(violation._id);
+    const contestAfterDelete = await Contest.findById(contest._id);
+
+    assert.ok(!quizAfterDelete, 'Quiz should be deleted');
+    assert.ok(!attemptAfterDelete, 'QuizAttempt should be cascade deleted');
+    assert.ok(!violationAfterDelete, 'Violation should be cascade deleted');
+    assert.strictEqual(contestAfterDelete.quizzes.length, 0, 'Quiz reference should be pulled from contest quizzes');
+    assert.strictEqual(contestAfterDelete.leaderboard[0].completedQuizzes.length, 0, 'Quiz reference should be pulled from contest leaderboard');
+
+    // Cleanup mock contest and teacher
+    await Contest.deleteOne({ _id: contest._id });
+    await User.deleteOne({ _id: teacher._id });
+
+    console.log('✓ Test 4: Quiz deletion cascade cleanup passed.');
+    passed++;
+
+    // Test 5: Submit Quiz inside a Contest
+    console.log('\nRunning Test 5: Submit Quiz inside a Contest...');
+    
+    // Create a mock quiz with a question
+    const testQuiz = await Quiz.create({
+      title: 'Contest Quiz Test',
+      description: 'Used for testing contest quiz submissions',
+      category: 'testing',
+      creatorId: new mongoose.Types.ObjectId(),
+      duration: 15,
+      totalMarks: 50,
+      questions: [
+        {
+          questionType: 'mcq',
+          questionText: 'What is 1 + 1?',
+          options: ['1', '2', '3', '4'],
+          correctOption: 1,
+          topic: 'math',
+          difficulty: 'easy'
+        }
+      ]
+    });
+
+    // Create a mock contest containing the quiz
+    const testContest = await Contest.create({
+      title: 'Quiz Submission Contest',
+      startTime: new Date(Date.now() - 3600000), // Started 1 hour ago
+      endTime: new Date(Date.now() + 3600000), // Ends in 1 hour
+      creatorId: new mongoose.Types.ObjectId(),
+      quizzes: [testQuiz._id],
+      participants: [user._id],
+      leaderboard: [
+        {
+          userId: user._id,
+          score: 0,
+          penaltyTime: 0,
+          completedQuizzes: []
+        }
+      ]
+    });
+
+    // Mock request/response for submitContestQuiz
+    const submitReq = {
+      params: { id: testContest._id.toString(), quizId: testQuiz._id.toString() },
+      user: { id: user._id.toString(), role: 'student' },
+      body: {
+        answers: [
+          { questionId: testQuiz.questions[0]._id.toString(), selectedOption: 1 } // Correct answer
+        ],
+        timeTaken: 60
+      }
+    };
+
+    let submitStatus = null;
+    let submitJson = null;
+    const submitRes = {
+      status(code) {
+        submitStatus = code;
+        return this;
+      },
+      json(payload) {
+        submitJson = payload;
+        return this;
+      }
+    };
+
+    let submitNextCalled = false;
+    const submitNext = (err) => {
+      if (err) submitNextCalled = true;
+    };
+
+    await submitContestQuiz(submitReq, submitRes, submitNext);
+
+    assert.strictEqual(submitNextCalled, false, 'submitContestQuiz should not error out');
+    assert.strictEqual(submitStatus, 201, 'submitContestQuiz should respond with 201 status');
+    assert.strictEqual(submitJson.success, true, 'submitContestQuiz response should indicate success');
+    assert.strictEqual(submitJson.attempt.score, 50, 'Grades correct answer as full marks');
+    assert.strictEqual(submitJson.attempt.accuracy, 100, 'Grades correct answer as 100% accuracy');
+
+    // Verify database updates
+    const contestAfterSubmit = await Contest.findById(testContest._id);
+    const userLeaderboardEntry = contestAfterSubmit.leaderboard.find(
+      (e) => e.userId.toString() === user._id.toString()
+    );
+    assert.strictEqual(userLeaderboardEntry.score, 50, 'Leaderboard entry score should be updated');
+    assert.ok(userLeaderboardEntry.completedQuizzes.includes(testQuiz._id), 'Quiz ID should be added to completedQuizzes');
+
+    const createdAttempt = await QuizAttempt.findOne({ userId: user._id, quizId: testQuiz._id });
+    assert.ok(createdAttempt, 'QuizAttempt should be saved');
+    assert.strictEqual(createdAttempt.score, 50, 'Saved attempt score should be 50');
+
+    // Cleanup
+    await Quiz.deleteOne({ _id: testQuiz._id });
+    await Contest.deleteOne({ _id: testContest._id });
+    await QuizAttempt.deleteOne({ _id: createdAttempt._id });
+
+    console.log('✓ Test 5: Submit quiz inside a contest passed.');
+    passed++;
+
     // Cleanup
     await User.deleteOne({ email: 'test_student@codearena.com' });
 
@@ -88,8 +309,5 @@ const runAllTests = async () => {
     await disconnectDB();
   }
 };
-
-// Simple mongoose dynamic imports support
-import mongoose from 'mongoose';
 
 runAllTests();
