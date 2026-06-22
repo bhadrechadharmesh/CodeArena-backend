@@ -25,6 +25,7 @@ const getTransporter = async () => {
         user,
         pass,
       },
+      family:4,
     });
   } else {
     console.log('No SMTP config found. Generating Ethereal test email account...');
