@@ -92,34 +92,91 @@ export const sendOTPEmail = async (toEmail, otp, name) => {
   console.log(`[EMAIL SEND] OTP Code: ${otp}`);
   console.log('==================================================\n');
 
-  const htmlContent = `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
-      <div style="text-align: center; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9;">
-        <h1 style="color: #4f46e5; margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.5px;">CodeArena</h1>
-        <p style="color: #64748b; margin: 4px 0 0 0; font-size: 14px;">Where Champions Code</p>
-      </div>
-      
-      <div style="margin-bottom: 24px;">
-        <h2 style="color: #1e293b; font-size: 20px; font-weight: 700; margin-top: 0;">Verify Your Email Address</h2>
-        <p style="color: #475569; font-size: 16px; line-height: 1.6;">Hello ${name},</p>
-        <p style="color: #475569; font-size: 16px; line-height: 1.6;">Thank you for registering at CodeArena! Please use the following One-Time Password (OTP) to verify your account and complete your registration:</p>
-      </div>
-
-      <div style="text-align: center; margin: 32px 0; padding: 18px; background-color: #f5f3ff; border: 1px dashed #c084fc; border-radius: 12px;">
-        <span style="font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #7c3aed; font-family: monospace;">${otp}</span>
-        <p style="color: #701a75; font-size: 12px; margin: 8px 0 0 0; font-weight: 600;">This code is valid for 10 minutes.</p>
-      </div>
-
-      <div style="margin-bottom: 24px;">
-        <p style="color: #475569; font-size: 14px; line-height: 1.6;">If you did not initiate this request, you can safely ignore this email.</p>
-      </div>
-
-      <div style="padding-top: 20px; border-top: 1px solid #f1f5f9; text-align: center; color: #94a3b8; font-size: 12px;">
-        <p style="margin: 0;">© ${new Date().getFullYear()} CodeArena. All rights reserved.</p>
-        <p style="margin: 4px 0 0 0;">This is an automated message, please do not reply.</p>
-      </div>
-    </div>
-  `;
+  const htmlContent = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Verify your CodeArena Email</title>
+  <style type="text/css">
+    body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      background-color: #f8fafc;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+    }
+    table, td {
+      mso-table-lspace: 0pt;
+      mso-table-rspace: 0pt;
+    }
+    img {
+      border: 0;
+      height: auto;
+      line-height: 100%;
+      outline: none;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f8fafc; padding: 20px 0;">
+    <tr>
+      <td align="center" valign="top">
+        <!--[if (gte mso 9)|(IE)]>
+        <table align="center" border="0" cellspacing="0" cellpadding="0" width="600">
+        <tr>
+        <td align="center" valign="top" width="600">
+        <![endif]-->
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; text-align: left;">
+          <tr>
+            <td style="padding: 32px 32px 24px 32px; border-bottom: 2px solid #f1f5f9; text-align: center;">
+              <h1 style="color: #4f46e5; margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">CodeArena</h1>
+              <p style="color: #64748b; margin: 4px 0 0 0; font-size: 14px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">Where Champions Code</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 32px 32px 20px 32px;">
+              <h2 style="color: #1e293b; font-size: 20px; font-weight: 700; margin-top: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">Verify Your Email Address</h2>
+              <p style="color: #475569; font-size: 16px; line-height: 1.6; margin: 16px 0 0 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">Hello ${name},</p>
+              <p style="color: #475569; font-size: 16px; line-height: 1.6; margin: 12px 0 0 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">Thank you for registering at CodeArena! Please use the following One-Time Password (OTP) to verify your account and complete your registration:</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 32px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f5f3ff; border: 1px dashed #c084fc; border-radius: 12px; text-align: center;">
+                <tr>
+                  <td style="padding: 24px;">
+                    <span style="font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #7c3aed; font-family: monospace; display: inline-block;">${otp}</span>
+                    <p style="color: #701a75; font-size: 12px; margin: 8px 0 0 0; font-weight: 600; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">This code is valid for 10 minutes.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 24px 32px 32px 32px;">
+              <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">If you did not initiate this request, you can safely ignore this email.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 24px 32px; background-color: #f8fafc; border-top: 1px solid #f1f5f9; text-align: center; color: #94a3b8; font-size: 12px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px;">
+              <p style="margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">&copy; ${new Date().getFullYear()} CodeArena. All rights reserved.</p>
+              <p style="margin: 4px 0 0 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">This is an automated message, please do not reply.</p>
+            </td>
+          </tr>
+        </table>
+        <!--[if (gte mso 9)|(IE)]>
+        </td>
+        </tr>
+        </table>
+        <![endif]-->
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 
   const textContent = `Hello ${name},\n\nYour OTP to verify your email is: ${otp}. This code is valid for 10 minutes.\n\nThank you,\nCodeArena Team`;
 
