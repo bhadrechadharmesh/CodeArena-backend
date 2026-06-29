@@ -121,7 +121,7 @@ export const joinContest = async (req, res, next) => {
 // @access  Private (Student)
 export const submitContestChallenge = async (req, res, next) => {
   try {
-    const { code, language } = req.body;
+    const { code, language, runOnly } = req.body;
     const contest = await Contest.findById(req.params.id);
 
     if (!contest) {
@@ -146,56 +146,58 @@ export const submitContestChallenge = async (req, res, next) => {
     }
 
     const isAccepted = evaluation.status === 'Accepted';
-
-    // Find user's leaderboard entry
-    let entry = contest.leaderboard.find(
-      (e) => e.userId.toString() === req.user.id.toString()
-    );
-
-    if (!entry) {
-      contest.leaderboard.push({
-        userId: req.user.id,
-        score: 0,
-        penaltyTime: 0,
-        submissionsCount: 0,
-        solvedChallenges: [],
-        completedQuizzes: []
-      });
-      entry = contest.leaderboard[contest.leaderboard.length - 1];
-    }
-
-    // Increment submissions count
-    entry.submissionsCount += 1;
-
     let pointsAwarded = 0;
-    if (isAccepted && !entry.solvedChallenges.includes(challenge._id)) {
-      entry.solvedChallenges.push(challenge._id);
-      
-      // Calculate penalty: minutes elapsed since contest start + 20 mins per wrong submission
-      const minutesElapsed = Math.floor((now - new Date(contest.startTime)) / 60000);
-      const wrongSubmissions = entry.submissionsCount - 1; // subtract the current accepted submission
-      const penalty = minutesElapsed + (wrongSubmissions * 20);
 
-      // Score weight by difficulty
-      const challengeScore = challenge.difficulty === 'easy' ? 50 : challenge.difficulty === 'medium' ? 100 : 200;
+    if (!runOnly) {
+      // Find user's leaderboard entry
+      let entry = contest.leaderboard.find(
+        (e) => e.userId.toString() === req.user.id.toString()
+      );
 
-      entry.score += challengeScore;
-      entry.penaltyTime += penalty;
-      pointsAwarded = challengeScore;
-
-      // Add points to user profile
-      const user = await User.findById(req.user.id);
-      if (user) {
-        user.totalPoints += challengeScore;
-        await user.save();
+      if (!entry) {
+        contest.leaderboard.push({
+          userId: req.user.id,
+          score: 0,
+          penaltyTime: 0,
+          submissionsCount: 0,
+          solvedChallenges: [],
+          completedQuizzes: []
+        });
+        entry = contest.leaderboard[contest.leaderboard.length - 1];
       }
-    }
 
-    await contest.save();
+      // Increment submissions count
+      entry.submissionsCount += 1;
 
-    // Broadcast WebSocket updates
-    if (req.io) {
-      await sendLeaderboardUpdate(req.io, contest._id);
+      if (isAccepted && !entry.solvedChallenges.includes(challenge._id)) {
+        entry.solvedChallenges.push(challenge._id);
+        
+        // Calculate penalty: minutes elapsed since contest start + 20 mins per wrong submission
+        const minutesElapsed = Math.floor((now - new Date(contest.startTime)) / 60000);
+        const wrongSubmissions = entry.submissionsCount - 1; // subtract the current accepted submission
+        const penalty = minutesElapsed + (wrongSubmissions * 20);
+
+        // Score weight by difficulty
+        const challengeScore = challenge.difficulty === 'easy' ? 50 : challenge.difficulty === 'medium' ? 100 : 200;
+
+        entry.score += challengeScore;
+        entry.penaltyTime += penalty;
+        pointsAwarded = challengeScore;
+
+        // Add points to user profile
+        const user = await User.findById(req.user.id);
+        if (user) {
+          user.totalPoints += challengeScore;
+          await user.save();
+        }
+      }
+
+      await contest.save();
+
+      // Broadcast WebSocket updates
+      if (req.io) {
+        await sendLeaderboardUpdate(req.io, contest._id);
+      }
     }
 
     // Format output

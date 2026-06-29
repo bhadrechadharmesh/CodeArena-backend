@@ -68,17 +68,19 @@ export const getChallengeById = async (req, res, next) => {
 // @access  Private (Student)
 export const submitChallenge = async (req, res, next) => {
   try {
-    const { code, language } = req.body;
+    const { code, language, runOnly } = req.body;
     const challenge = await CodingChallenge.findById(req.params.id);
 
     if (!challenge) {
       return res.status(404).json({ success: false, message: 'Challenge not found' });
     }
 
-    // Check if already attempted
-    const existingAttempt = await ChallengeAttempt.findOne({ userId: req.user.id, challengeId: challenge._id });
-    if (existingAttempt) {
-      return res.status(400).json({ success: false, message: 'You have already attempted this challenge.' });
+    if (!runOnly) {
+      // Check if already attempted
+      const existingAttempt = await ChallengeAttempt.findOne({ userId: req.user.id, challengeId: challenge._id });
+      if (existingAttempt) {
+        return res.status(400).json({ success: false, message: 'You have already attempted this challenge.' });
+      }
     }
 
     if (!challenge.supportedLanguages.includes(language)) {
@@ -102,7 +104,7 @@ export const submitChallenge = async (req, res, next) => {
     const isAccepted = evaluation.status === 'Accepted';
     let pointsAwarded = 0;
 
-    if (isAccepted) {
+    if (!runOnly && isAccepted) {
       // Points based on difficulty
       pointsAwarded = challenge.difficulty === 'easy' ? 50 : challenge.difficulty === 'medium' ? 100 : 200;
 
@@ -127,17 +129,19 @@ export const submitChallenge = async (req, res, next) => {
       return resObj;
     });
 
-    // Save challenge attempt
-    await ChallengeAttempt.create({
-      userId: req.user.id,
-      challengeId: challenge._id,
-      code,
-      language,
-      status: evaluation.status,
-      passedCount: evaluation.passedCount,
-      totalCount: evaluation.totalCount,
-      pointsAwarded
-    });
+    if (!runOnly) {
+      // Save challenge attempt
+      await ChallengeAttempt.create({
+        userId: req.user.id,
+        challengeId: challenge._id,
+        code,
+        language,
+        status: evaluation.status,
+        passedCount: evaluation.passedCount,
+        totalCount: evaluation.totalCount,
+        pointsAwarded
+      });
+    }
 
     res.status(200).json({
       success: true,

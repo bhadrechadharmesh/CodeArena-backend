@@ -4,6 +4,8 @@ import User from '../models/User.js';
 import Quiz from '../models/Quiz.js';
 import CodingChallenge from '../models/CodingChallenge.js';
 import Contest from '../models/Contest.js';
+import QuizAttempt from '../models/QuizAttempt.js';
+import ChallengeAttempt from '../models/ChallengeAttempt.js';
 import { connectDB, disconnectDB } from './db.js';
 
 dotenv.config();
@@ -18,6 +20,8 @@ const seedData = async () => {
     await Quiz.deleteMany();
     await CodingChallenge.deleteMany();
     await Contest.deleteMany();
+    await QuizAttempt.deleteMany();
+    await ChallengeAttempt.deleteMany();
 
     console.log('Seeding default users...');
     // 1. Create Users
@@ -173,8 +177,7 @@ const seedData = async () => {
       ]
     });
 
-    console.log('Seeding default contest...');
-    // 4. Create Contest
+    // Create Contest
     const now = new Date();
     const startTime = new Date(now.getTime() - 2 * 60 * 60 * 1000); // Started 2 hours ago
     const endTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Ends tomorrow
@@ -198,6 +201,52 @@ const seedData = async () => {
           completedQuizzes: []
         }
       ]
+    });
+
+    console.log('Seeding student attempts...');
+    // Create Quiz Attempt
+    await QuizAttempt.create({
+      userId: student._id,
+      quizId: quiz1._id,
+      answers: [
+        {
+          questionId: quiz1.questions[0]._id,
+          selectedOption: 1,
+          isCorrect: true
+        },
+        {
+          questionId: quiz1.questions[1]._id,
+          booleanAnswer: true,
+          isCorrect: true
+        },
+        {
+          questionId: quiz1.questions[2]._id,
+          selectedOptions: [0, 2],
+          isCorrect: true
+        },
+        {
+          questionId: quiz1.questions[3]._id,
+          textAnswer: '1',
+          isCorrect: true
+        }
+      ],
+      score: 40,
+      accuracy: 100,
+      timeTaken: 180,
+      submittedAt: new Date(now.getTime() - 1 * 60 * 60 * 1000)
+    });
+
+    // Create Coding Challenge Attempt
+    await ChallengeAttempt.create({
+      userId: student._id,
+      challengeId: challenge1._id,
+      code: `def reverse_string(s):\n    return s[::-1]\n\n# Read input\nimport sys\nfor line in sys.stdin:\n    print(reverse_string(line.strip()))`,
+      language: 'python',
+      status: 'Accepted',
+      passedCount: 4,
+      totalCount: 4,
+      pointsAwarded: 50,
+      submittedAt: new Date(now.getTime() - 1.5 * 60 * 60 * 1000)
     });
 
     console.log('Seeding completed successfully!');
