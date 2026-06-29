@@ -68,6 +68,18 @@ const codingChallengeSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+  boilerplateCode: {
+    cpp: { type: String, default: '' },
+    java: { type: String, default: '' },
+    python: { type: String, default: '' },
+    javascript: { type: String, default: '' }
+  },
+  sampleCode: {
+    cpp: { type: String, default: '' },
+    java: { type: String, default: '' },
+    python: { type: String, default: '' },
+    javascript: { type: String, default: '' }
   }
 }, {
   timestamps: true

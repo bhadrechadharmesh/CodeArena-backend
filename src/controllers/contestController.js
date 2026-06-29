@@ -50,7 +50,7 @@ export const getContests = async (req, res, next) => {
 export const getContestById = async (req, res, next) => {
   try {
     const contest = await Contest.findById(req.params.id)
-      .populate('codingChallenges', 'title description difficulty constraints examples')
+      .populate('codingChallenges', 'title description difficulty constraints examples supportedLanguages boilerplateCode sampleCode')
       .populate('quizzes', 'title description category difficulty duration totalMarks')
       .populate('participants', 'name email college')
       .populate('leaderboard.userId', 'name email college totalPoints');
@@ -139,7 +139,8 @@ export const submitContestChallenge = async (req, res, next) => {
     }
 
     // Process code
-    const evaluation = await executeSubmission(code, language, challenge.testCases);
+    const boilerplate = challenge.boilerplateCode?.[language] || '';
+    const evaluation = await executeSubmission(code, language, challenge.testCases, boilerplate);
 
     if (!evaluation.success) {
       return res.status(500).json({ success: false, message: 'Evaluation failed', error: evaluation.error });

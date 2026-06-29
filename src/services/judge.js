@@ -23,7 +23,7 @@ const isCommandAvailable = async (cmd) => {
   }
 };
 
-export const executeSubmission = async (code, language, testCases) => {
+export const executeSubmission = async (code, language, testCases, boilerplate = '') => {
   const submissionId = Math.random().toString(36).substring(7);
   const results = [];
 
@@ -31,7 +31,7 @@ export const executeSubmission = async (code, language, testCases) => {
   let filename = '';
   let compileCmd = '';
   let runCmd = '';
-  let fileContent = code;
+  let fileContent = boilerplate ? `${code}\n${boilerplate}` : code;
 
   switch (language) {
     case 'cpp':
@@ -43,7 +43,7 @@ export const executeSubmission = async (code, language, testCases) => {
       // Java needs public class named Solution
       filename = `Solution_${submissionId}.java`;
       // Replace Solution class declaration to match file name
-      fileContent = code.replace(/public\s+class\s+Solution/g, `public class Solution_${submissionId}`);
+      fileContent = fileContent.replace(/public\s+class\s+Solution/g, `public class Solution_${submissionId}`);
       compileCmd = `javac ${path.join(TEMP_DIR, filename)}`;
       runCmd = `java -cp ${TEMP_DIR} Solution_${submissionId}`;
       break;
@@ -73,7 +73,7 @@ export const executeSubmission = async (code, language, testCases) => {
 
     if (!compilerExists) {
       console.warn(`Compiler/Interpreter '${compilerCmd}' is not installed. Running in sandbox evaluation simulation.`);
-      return runSimulation(code, language, testCases);
+      return runSimulation(fileContent, language, testCases);
     }
 
     // Compile if necessary

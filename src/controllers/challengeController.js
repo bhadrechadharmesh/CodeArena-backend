@@ -8,7 +8,7 @@ import { executeSubmission } from '../services/judge.js';
 // @access  Private (Teacher/Admin)
 export const createChallenge = async (req, res, next) => {
   try {
-    const { title, description, difficulty, constraints, examples, testCases, supportedLanguages } = req.body;
+    const { title, description, difficulty, constraints, examples, testCases, supportedLanguages, boilerplateCode, sampleCode } = req.body;
 
     const challenge = await CodingChallenge.create({
       title,
@@ -18,6 +18,8 @@ export const createChallenge = async (req, res, next) => {
       examples: examples || [],
       testCases: testCases || [],
       supportedLanguages: supportedLanguages || ['cpp', 'java', 'python', 'javascript'],
+      boilerplateCode: boilerplateCode || {},
+      sampleCode: sampleCode || {},
       creatorId: req.user.id
     });
 
@@ -94,7 +96,8 @@ export const submitChallenge = async (req, res, next) => {
     }
 
     // Call compilation & execution service
-    const evaluation = await executeSubmission(code, language, testCases);
+    const boilerplate = challenge.boilerplateCode?.[language] || '';
+    const evaluation = await executeSubmission(code, language, testCases, boilerplate);
 
     if (!evaluation.success) {
       return res.status(500).json({ success: false, message: 'Evaluation failed', error: evaluation.error });
