@@ -8,7 +8,7 @@ import Violation from '../models/Violation.js';
 import Contest from '../models/Contest.js';
 import { deleteQuiz } from '../controllers/quizController.js';
 import { submitContestQuiz } from '../controllers/contestController.js';
-import { registerUser, loginUser, verifyOtp, resendOtp } from '../controllers/authController.js';
+import { registerUser, loginUser, verifyOtp, resendOtp, forgotPassword, verifyResetOtp, resetPassword } from '../controllers/authController.js';
 import { connectDB, disconnectDB } from '../config/db.js';
 import { executeSubmission } from '../services/judge.js';
 
@@ -429,6 +429,89 @@ Explanation: Node.js is an open-source, cross-platform JavaScript runtime.
     await User.deleteOne({ email: testEmail });
 
     console.log('✓ Test 7: Email OTP Verification flow passed.');
+    passed++;
+
+    // Test 8: Forgot Password OTP & Reset Flow
+    console.log('\nRunning Test 8: Forgot Password OTP & Reset Flow...');
+    const forgotEmail = 'forgot_test_student@codearena.com';
+    await User.deleteMany({ email: forgotEmail });
+
+    // 1. Create a verified user for testing password reset
+    const userToReset = await User.create({
+      name: 'Forgot Test Student',
+      email: forgotEmail,
+      password: 'originalpassword123',
+      role: 'student',
+      college: 'Forgot College',
+      isVerified: true
+    });
+
+    // 2. Submit a forgot password request
+    const forgotReq = {
+      body: { email: forgotEmail }
+    };
+    const forgotRes = makeMockRes();
+    await forgotPassword(forgotReq, forgotRes, (err) => { if (err) throw err; });
+
+    assert.strictEqual(forgotRes.getStatus(), 200, 'Forgot password request should return 200');
+    assert.strictEqual(forgotRes.getJson().success, true, 'Forgot password response should indicate success');
+
+    // Retrieve OTP from database
+    let dbUser = await User.findOne({ email: forgotEmail });
+    assert.ok(dbUser.resetPasswordOtp, 'User should have reset OTP generated in DB');
+    assert.ok(dbUser.resetPasswordOtpExpiry, 'User should have reset OTP expiry set in DB');
+    const resetOtp = dbUser.resetPasswordOtp;
+
+    // 3. Verify OTP with incorrect code
+    const invalidVerifyResetReq = {
+      body: { email: forgotEmail, otp: '000000' }
+    };
+    const invalidVerifyResetRes = makeMockRes();
+    await verifyResetOtp(invalidVerifyResetReq, invalidVerifyResetRes, (err) => { if (err) throw err; });
+    assert.strictEqual(invalidVerifyResetRes.getStatus(), 400, 'Reset OTP verification should fail for invalid code');
+
+    // 4. Verify OTP with correct code
+    const correctVerifyResetReq = {
+      body: { email: forgotEmail, otp: resetOtp }
+    };
+    const correctVerifyResetRes = makeMockRes();
+    await verifyResetOtp(correctVerifyResetReq, correctVerifyResetRes, (err) => { if (err) throw err; });
+    assert.strictEqual(correctVerifyResetRes.getStatus(), 200, 'Reset OTP verification should succeed for valid code');
+
+    // 5. Try to reset password with invalid OTP
+    const invalidResetReq = {
+      body: { email: forgotEmail, otp: '000000', newPassword: 'newpassword123' }
+    };
+    const invalidResetRes = makeMockRes();
+    await resetPassword(invalidResetReq, invalidResetRes, (err) => { if (err) throw err; });
+    assert.strictEqual(invalidResetRes.getStatus(), 400, 'Reset password should fail for invalid OTP');
+
+    // 6. Reset password with correct OTP
+    const correctResetReq = {
+      body: { email: forgotEmail, otp: resetOtp, newPassword: 'newpassword123' }
+    };
+    const correctResetRes = makeMockRes();
+    await resetPassword(correctResetReq, correctResetRes, (err) => { if (err) throw err; });
+    assert.strictEqual(correctResetRes.getStatus(), 200, 'Reset password should succeed with correct OTP');
+    assert.strictEqual(correctResetRes.getJson().success, true, 'Reset password response should indicate success');
+
+    // Verify DB state
+    dbUser = await User.findOne({ email: forgotEmail });
+    assert.strictEqual(dbUser.resetPasswordOtp, null, 'Reset OTP should be cleared');
+    assert.strictEqual(dbUser.resetPasswordOtpExpiry, null, 'Reset OTP expiry should be cleared');
+
+    // 7. Verify login works with the new password
+    const resetLoginReq = {
+      body: { email: forgotEmail, password: 'newpassword123' }
+    };
+    const resetLoginRes = makeMockRes();
+    await loginUser(resetLoginReq, resetLoginRes, (err) => { if (err) throw err; });
+    assert.strictEqual(resetLoginRes.getStatus(), 200, 'Login should succeed with new password');
+    assert.ok(resetLoginRes.getJson().token, 'Login response should include token');
+
+    // Cleanup
+    await User.deleteOne({ email: forgotEmail });
+    console.log('✓ Test 8: Forgot Password OTP & Reset Flow passed.');
     passed++;
 
     console.log(`\n=== TEST SUITE COMPLETED: ${passed} Passed, ${failed} Failed ===`);

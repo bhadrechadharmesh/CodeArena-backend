@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
-import { sendOTPEmail } from '../services/emailService.js';
+import { sendOTPEmail, sendForgotPasswordOTPEmail } from '../services/emailService.js';
 
 // Helper to generate a 6-digit random number OTP
 const generateOTP = () => {
@@ -285,6 +285,121 @@ export const logoutUser = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Logged out successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Forgot Password - Request OTP
+// @route   POST /api/auth/forgot-password
+// @access  Public
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Please provide an email address' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'No account found with this email address' });
+    }
+
+    // Check if the user is registered via Google OAuth
+    if (user.googleId) {
+      return res.status(400).json({
+        success: false,
+        message: 'This account was registered using Google OAuth. Please sign in with Google.',
+      });
+    }
+
+    // Generate reset OTP
+    const otp = generateOTP();
+    user.resetPasswordOtp = otp;
+    user.resetPasswordOtpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
+
+    await user.save();
+
+    // Send reset OTP email
+    await sendForgotPasswordOTPEmail(user.email, otp, user.name);
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset OTP has been sent to your email address.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Verify Forgot Password OTP
+// @route   POST /api/auth/verify-reset-otp
+// @access  Public
+export const verifyResetOtp = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: 'Please provide email and OTP code' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Verify reset OTP matching and expiry
+    if (user.resetPasswordOtp !== otp || !user.resetPasswordOtpExpiry || user.resetPasswordOtpExpiry < Date.now()) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired password reset OTP' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'OTP verified successfully. You can now reset your password.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Reset Password using OTP
+// @route   POST /api/auth/reset-password
+// @access  Public
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Please fill in all fields' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
+    }
+
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Verify reset OTP matching and expiry again to ensure secure reset
+    if (user.resetPasswordOtp !== otp || !user.resetPasswordOtpExpiry || user.resetPasswordOtpExpiry < Date.now()) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired password reset OTP' });
+    }
+
+    // Set new password (the pre-save hook in user model will hash it automatically)
+    user.password = newPassword;
+    user.resetPasswordOtp = null;
+    user.resetPasswordOtpExpiry = null;
+
+    // Save changes
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset successful. You can now log in with your new password.',
     });
   } catch (error) {
     next(error);
