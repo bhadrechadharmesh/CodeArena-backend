@@ -41,6 +41,7 @@ export const registerUser = async (req, res, next) => {
       userExists.role = role || 'student';
       userExists.college = college || '';
       userExists.bio = bio || '';
+      userExists.isApproved = (role || 'student') !== 'teacher';
       user = userExists;
     } else {
       // Create new unverified user
@@ -52,6 +53,7 @@ export const registerUser = async (req, res, next) => {
         college: college || '',
         bio: bio || '',
         isVerified: false,
+        isApproved: (role || 'student') !== 'teacher',
       });
     }
 
@@ -118,6 +120,14 @@ export const loginUser = async (req, res, next) => {
       });
     }
 
+    // Check if teacher is approved
+    if (user.role === 'teacher' && !user.isApproved) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your teacher account is pending admin approval. Please contact the administrator.',
+      });
+    }
+
     const token = generateToken(user._id);
 
     res.status(200).json({
@@ -158,7 +168,13 @@ export const verifyOtp = async (req, res, next) => {
     }
 
     if (user.isVerified) {
-      // If already verified, log them in immediately
+      // If already verified, log them in immediately (unless pending teacher approval)
+      if (user.role === 'teacher' && !user.isApproved) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your teacher account is pending admin approval. Please contact the administrator.',
+        });
+      }
       const token = generateToken(user._id);
       return res.status(200).json({
         success: true,
@@ -189,6 +205,15 @@ export const verifyOtp = async (req, res, next) => {
     user.otp = null;
     user.otpExpiry = null;
     await user.save();
+
+    // If teacher is verified but not approved, do not generate token and return success with status message
+    if (user.role === 'teacher' && !user.isApproved) {
+      return res.status(200).json({
+        success: true,
+        requiresApproval: true,
+        message: 'Email verified successfully! However, your teacher account is pending admin approval. You will be able to log in once approved.',
+      });
+    }
 
     const token = generateToken(user._id);
 
@@ -400,6 +425,53 @@ export const resetPassword = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Password reset successful. You can now log in with your new password.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get all teachers for admin management
+// @route   GET /api/auth/admin/teachers
+// @access  Private (Admin)
+export const getTeachers = async (req, res, next) => {
+  try {
+    const teachers = await User.find({ role: 'teacher' }).sort({ createdAt: -1 });
+    res.status(200).json({
+      success: true,
+      teachers,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Approve/Disapprove a teacher
+// @route   PUT /api/auth/admin/teachers/:id/approve
+// @access  Private (Admin)
+export const approveTeacher = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { isApproved } = req.body;
+
+    if (typeof isApproved !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'Please provide isApproved boolean value' });
+    }
+
+    const teacher = await User.findOneAndUpdate(
+      { _id: id, role: 'teacher' },
+      { isApproved },
+      { new: true }
+    );
+
+    if (!teacher) {
+      return res.status(404).json({ success: false, message: 'Teacher not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Teacher account ${isApproved ? 'approved' : 'disapproved'} successfully`,
+      teacher,
     });
   } catch (error) {
     next(error);

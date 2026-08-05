@@ -66,6 +66,13 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  isApproved: {
+    type: Boolean,
+    default: function() {
+      // Teachers need admin approval; students/admins do not.
+      return this.role !== 'teacher';
+    },
+  },
   otp: {
     type: String,
     default: null,

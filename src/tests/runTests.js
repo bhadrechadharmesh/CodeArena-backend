@@ -8,7 +8,7 @@ import Violation from '../models/Violation.js';
 import Contest from '../models/Contest.js';
 import { deleteQuiz } from '../controllers/quizController.js';
 import { submitContestQuiz } from '../controllers/contestController.js';
-import { registerUser, loginUser, verifyOtp, resendOtp, forgotPassword, verifyResetOtp, resetPassword } from '../controllers/authController.js';
+import { registerUser, loginUser, verifyOtp, resendOtp, forgotPassword, verifyResetOtp, resetPassword, getTeachers, approveTeacher } from '../controllers/authController.js';
 import { connectDB, disconnectDB } from '../config/db.js';
 import { executeSubmission } from '../services/judge.js';
 
@@ -92,7 +92,8 @@ const runAllTests = async () => {
       email: 'test_teacher@codearena.com',
       password: 'teacherpassword123',
       role: 'teacher',
-      isVerified: true
+      isVerified: true,
+      isApproved: true
     });
 
     // Create a mock quiz
@@ -512,6 +513,98 @@ Explanation: Node.js is an open-source, cross-platform JavaScript runtime.
     // Cleanup
     await User.deleteOne({ email: forgotEmail });
     console.log('✓ Test 8: Forgot Password OTP & Reset Flow passed.');
+    passed++;
+
+    // Test 9: Teacher Approval Flow
+    console.log('\nRunning Test 9: Teacher Registration & Admin Approval Flow...');
+    const teacherEmail = 'test_teacher_approval@codearena.com';
+    await User.deleteMany({ email: teacherEmail });
+
+    // 1. Submit teacher registration request
+    const teacherRegReq = {
+      body: {
+        name: 'Approval Teacher',
+        email: teacherEmail,
+        password: 'teacherpassword123',
+        role: 'teacher',
+        college: 'Teacher College',
+      },
+    };
+    const teacherRegRes = makeMockRes();
+    await registerUser(teacherRegReq, teacherRegRes, (err) => { if (err) throw err; });
+
+    assert.strictEqual(teacherRegRes.getStatus(), 200, 'Teacher registration should return status 200');
+    assert.strictEqual(teacherRegRes.getJson().success, true, 'Teacher registration response should indicate success');
+
+    // Retrieve user and check that isApproved is false
+    let registeredTeacher = await User.findOne({ email: teacherEmail });
+    assert.ok(registeredTeacher, 'Teacher should exist in DB');
+    assert.strictEqual(registeredTeacher.isApproved, false, 'Teacher should be pending approval (isApproved: false)');
+
+    // 2. Try to verify OTP for teacher (should verify successfully but NOT log in immediately)
+    const teacherOtp = registeredTeacher.otp;
+    const verifyTeacherReq = {
+      body: {
+        email: teacherEmail,
+        otp: teacherOtp,
+      },
+    };
+    const verifyTeacherRes = makeMockRes();
+    await verifyOtp(verifyTeacherReq, verifyTeacherRes, (err) => { if (err) throw err; });
+
+    assert.strictEqual(verifyTeacherRes.getStatus(), 200, 'Teacher OTP verification should succeed');
+    assert.strictEqual(verifyTeacherRes.getJson().requiresApproval, true, 'Teacher OTP verification response should indicate requiresApproval');
+    assert.ok(!verifyTeacherRes.getJson().token, 'Teacher OTP verification should NOT return a JWT token');
+
+    // Check DB status: verified but not approved
+    registeredTeacher = await User.findOne({ email: teacherEmail });
+    assert.strictEqual(registeredTeacher.isVerified, true, 'Teacher email should be verified');
+    assert.strictEqual(registeredTeacher.isApproved, false, 'Teacher should still be unapproved');
+
+    // 3. Try to log in as unapproved teacher (should get 403 Forbidden)
+    const teacherLoginReq = {
+      body: {
+        email: teacherEmail,
+        password: 'teacherpassword123',
+      },
+    };
+    const teacherLoginRes = makeMockRes();
+    await loginUser(teacherLoginReq, teacherLoginRes, (err) => { if (err) throw err; });
+    assert.strictEqual(teacherLoginRes.getStatus(), 403, 'Login should fail with 403 for unapproved teacher');
+
+    // 4. Admin lists teachers and approves the teacher
+    const listReq = {};
+    const listRes = makeMockRes();
+    await getTeachers(listReq, listRes, (err) => { if (err) throw err; });
+    assert.strictEqual(listRes.getStatus(), 200, 'Admin getTeachers should return status 200');
+    const teachersList = listRes.getJson().teachers;
+    const foundInList = teachersList.find(t => t.email === teacherEmail);
+    assert.ok(foundInList, 'Teacher should be in the admin teachers list');
+    assert.strictEqual(foundInList.isApproved, false, 'Teacher in list should have isApproved: false');
+
+    // Approve the teacher
+    const approveReq = {
+      params: { id: registeredTeacher._id.toString() },
+      body: { isApproved: true },
+    };
+    const approveRes = makeMockRes();
+    await approveTeacher(approveReq, approveRes, (err) => { if (err) throw err; });
+    assert.strictEqual(approveRes.getStatus(), 200, 'Approve teacher should return status 200');
+    assert.strictEqual(approveRes.getJson().teacher.isApproved, true, 'Approve response should indicate teacher isApproved: true');
+
+    // Verify DB update
+    registeredTeacher = await User.findOne({ email: teacherEmail });
+    assert.strictEqual(registeredTeacher.isApproved, true, 'Teacher should now be approved in DB');
+
+    // 5. Try to log in now that they are approved
+    const teacherLoginRes2 = makeMockRes();
+    await loginUser(teacherLoginReq, teacherLoginRes2, (err) => { if (err) throw err; });
+    assert.strictEqual(teacherLoginRes2.getStatus(), 200, 'Login should succeed for approved teacher');
+    assert.ok(teacherLoginRes2.getJson().token, 'Login response should include token');
+
+    // Cleanup
+    await User.deleteOne({ email: teacherEmail });
+    console.log('✓ Test 9: Teacher Registration & Admin Approval Flow passed.');
     passed++;
 
     console.log(`\n=== TEST SUITE COMPLETED: ${passed} Passed, ${failed} Failed ===`);

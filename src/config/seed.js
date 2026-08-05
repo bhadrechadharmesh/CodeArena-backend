@@ -42,7 +42,8 @@ const seedData = async () => {
       role: 'teacher',
       college: 'Stark Academy',
       bio: 'Computer Science Professor',
-      isVerified: true
+      isVerified: true,
+      isApproved: true
     });
 
     const student = await User.create({

@@ -41,6 +41,13 @@ export const protect = async (req, res, next) => {
       });
     }
 
+    if (req.user.role === 'teacher' && !req.user.isApproved) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is pending admin approval. Please contact the administrator.',
+      });
+    }
+
     next();
   } catch (err) {
     return res.status(401).json({
