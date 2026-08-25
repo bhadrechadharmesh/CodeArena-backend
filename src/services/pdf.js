@@ -1,330 +1,105 @@
 import PDFDocument from 'pdfkit';
 
-/**
- * Generates a comprehensive, premium multi-page PDF scorecard
- * containing candidate details, performance summary, feedback, 
- * and detailed question breakdown (user response, correct answer, explanation).
- * 
- * @param {object} res - Express Response object to pipe the PDF stream to
- * @param {object} attempt - Quiz attempt details
- * @param {object} user - Candidate details
- * @param {object} quiz - Quiz details including questions
- */
+const C = { ink: '#181A1B', muted: '#687169', line: '#DCE1DC', paper: '#FFFFFF', soft: '#F4F6F3', accent: '#B9F227', good: '#397A46', bad: '#B33B32' };
+
+const feedbackFor = (accuracy) => {
+  if (accuracy >= 90) return 'Exceptional result. You demonstrated strong command of the material.';
+  if (accuracy >= 75) return 'Strong result. Review the missed questions to close the remaining gaps.';
+  if (accuracy >= 50) return 'Solid foundation. Use the detailed review to target the topics that need work.';
+  return 'This attempt identified useful gaps. Review the explanations, practise, and try again.';
+};
+
+const pageFrame = (doc, label = 'PERFORMANCE REPORT') => {
+  doc.rect(0, 0, 595.28, 841.89).fill(C.paper);
+  doc.rect(0, 0, 595.28, 10).fill(C.accent);
+  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(12).text('codearena.', 48, 32);
+  doc.fillColor(C.muted).font('Helvetica').fontSize(7).text(label, 380, 36, { width: 167, align: 'right', characterSpacing: 1.2 });
+  doc.moveTo(48, 58).lineTo(547, 58).strokeColor(C.line).lineWidth(1).stroke();
+};
+
 export const generateScorecardPDF = (res, attempt, user, quiz) => {
-  const doc = new PDFDocument({ size: 'A4', margin: 50 });
-
-  // Stream PDF response
+  const doc = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true, info: { Title: `${quiz?.title || 'Quiz'} - CodeArena Scorecard`, Author: 'CodeArena' } });
   doc.pipe(res);
+  pageFrame(doc);
 
-  // --- Page 1: Scorecard Certificate & Summary ---
-  
-  // Outer borders
-  doc.rect(20, 20, 555, 800).strokeColor('#4F46E5').lineWidth(3).stroke();
-  doc.rect(25, 25, 545, 790).strokeColor('#E2E8F0').lineWidth(1).stroke();
+  const submitted = new Date(attempt.submittedAt || Date.now());
+  const totalMarks = quiz?.totalMarks || 0;
+  const minutes = Math.floor((attempt.timeTaken || 0) / 60);
+  const seconds = (attempt.timeTaken || 0) % 60;
+  const status = attempt.accuracy >= 50 ? 'PASSED' : 'COMPLETED';
 
-  // Header Title
-  doc.fillColor('#1E1B4B')
-     .font('Helvetica-Bold')
-     .fontSize(28)
-     .text('CODEARENA SCORECARD', { align: 'center' });
+  doc.fillColor(C.muted).font('Helvetica').fontSize(8).text('SCORECARD', 48, 90, { characterSpacing: 1.5 });
+  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(30).text(quiz?.title || 'Quiz result', 48, 110, { width: 430, lineGap: 3 });
+  doc.fillColor(C.muted).font('Helvetica').fontSize(10).text(`${quiz?.category || 'General'}  /  ${(quiz?.difficulty || 'Not specified').toUpperCase()}`, 48, doc.y + 8);
 
-  doc.moveDown(0.5);
-  doc.fontSize(12)
-     .fillColor('#4F46E5')
-     .font('Helvetica-Bold')
-     .text('Official Performance Certificate', { align: 'center' });
+  const statusY = 190;
+  doc.rect(48, statusY, 499, 142).fill(C.ink);
+  doc.rect(48, statusY, 8, 142).fill(C.accent);
+  doc.fillColor('#AEB7B0').font('Helvetica').fontSize(8).text('FINAL SCORE', 76, statusY + 24, { characterSpacing: 1 });
+  doc.fillColor(C.paper).font('Helvetica-Bold').fontSize(36).text(`${attempt.score}`, 76, statusY + 42, { continued: true }).fontSize(14).fillColor('#AEB7B0').text(`  / ${totalMarks}`);
+  doc.fillColor(C.ink).rect(405, statusY + 24, 112, 28).fill(C.accent);
+  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(9).text(status, 405, statusY + 34, { width: 112, align: 'center', characterSpacing: 1 });
+  [['ACCURACY', `${attempt.accuracy}%`], ['TIME', `${minutes}m ${seconds}s`]].forEach(([label, value], i) => {
+    const x = 76 + i * 164;
+    doc.fillColor('#AEB7B0').font('Helvetica').fontSize(7).text(label, x, statusY + 102, { characterSpacing: 1 });
+    doc.fillColor(C.paper).font('Helvetica-Bold').fontSize(13).text(value, x, statusY + 116);
+  });
 
-  doc.moveDown(1.5);
+  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(12).text('Candidate', 48, 370);
+  const details = [['Name', user?.name || 'Not available'], ['Email', user?.email || 'Not available'], ['Institution', user?.college || 'Not specified'], ['Submitted', submitted.toLocaleString('en-IN')]];
+  details.forEach(([label, value], i) => {
+    const y = 398 + i * 34;
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8).text(label.toUpperCase(), 48, y, { width: 100, characterSpacing: .7 });
+    doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(9.5).text(String(value), 162, y, { width: 385 });
+    doc.moveTo(48, y + 20).lineTo(547, y + 20).strokeColor(C.line).lineWidth(.6).stroke();
+  });
 
-  // Divider Line
-  doc.moveTo(50, 110).lineTo(545, 110).strokeColor('#E2E8F0').stroke();
+  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(12).text('Assessment note', 48, 560);
+  doc.rect(48, 584, 499, 68).fill(C.soft);
+  doc.fillColor(C.ink).font('Helvetica').fontSize(10).text(feedbackFor(attempt.accuracy), 66, 604, { width: 463, lineGap: 4 });
+  doc.fillColor(C.muted).font('Helvetica').fontSize(7).text('REPORT ID', 48, 710, { characterSpacing: 1 });
+  doc.fillColor(C.ink).font('Courier').fontSize(8).text(String(attempt._id), 48, 724);
+  doc.fillColor(C.muted).font('Helvetica').fontSize(7.5).text('Generated by CodeArena. This report records the result of the submitted attempt.', 48, 772, { width: 499 });
 
-  doc.moveDown(2);
-
-  // User details
-  doc.fillColor('#1F2937')
-     .font('Helvetica-Bold')
-     .fontSize(14)
-     .text('Candidate Information');
-  
-  doc.font('Helvetica')
-     .fontSize(11)
-     .moveDown(0.5);
-
-  doc.text(`Name: ${user.name}`);
-  doc.text(`Email: ${user.email}`);
-  doc.text(`College: ${user.college || 'Not Specified'}`);
-  doc.text(`Date of Attempt: ${new Date(attempt.submittedAt).toLocaleDateString()}`);
-
-  doc.moveDown(2);
-
-  // Test details
-  doc.font('Helvetica-Bold')
-     .fontSize(14)
-     .text('Quiz Details');
-  
-  doc.font('Helvetica')
-     .fontSize(11)
-     .moveDown(0.5);
-
-  doc.text(`Quiz Title: ${quiz?.title || 'N/A (Deleted Quiz)'}`);
-  doc.text(`Category: ${quiz?.category || 'N/A'}`);
-  doc.text(`Difficulty: ${quiz?.difficulty ? quiz.difficulty.toUpperCase() : 'N/A'}`);
-
-  doc.moveDown(2);
-
-  // Performance Table / summary
-  doc.font('Helvetica-Bold')
-     .fontSize(14)
-     .text('Performance Summary');
-
-  doc.moveDown(0.8);
-
-  // Draw a styled performance block
-  const x = 50;
-  const y = doc.y;
-  
-  doc.rect(x, y, 495, 120).fill('#F8FAFC');
-  
-  // Fill details on the block
-  doc.fillColor('#1E293B')
-     .font('Helvetica-Bold')
-     .fontSize(11)
-     .text(`Score Obtained: ${attempt.score} / ${quiz.totalMarks}`, x + 20, y + 20);
-
-  doc.text(`Accuracy: ${attempt.accuracy}%`, x + 20, y + 45);
-  
-  const min = Math.floor(attempt.timeTaken / 60);
-  const sec = attempt.timeTaken % 60;
-  doc.text(`Time Taken: ${min}m ${sec}s`, x + 20, y + 70);
-
-  // Status Badge
-  const passStatus = attempt.accuracy >= 50 ? 'PASSED' : 'COMPLETED';
-  const badgeColor = attempt.accuracy >= 50 ? '#10B981' : '#F59E0B';
-  
-  doc.rect(x + 320, y + 30, 130, 40).fill(badgeColor);
-  doc.fillColor('#FFFFFF')
-     .font('Helvetica-Bold')
-     .fontSize(14)
-     .text(passStatus, x + 320, y + 42, { width: 130, align: 'center' });
-
-  // Reset doc.y below the performance summary block
-  doc.y = y + 140;
-
-  // Feedback Block (based on marks)
-  const getFeedback = (accuracy) => {
-    if (accuracy >= 90) return "Outstanding! You have demonstrated exceptional mastery of this quiz.";
-    if (accuracy >= 75) return "Excellent! You have a very strong grasp of the concepts tested.";
-    if (accuracy >= 50) return "Good job! You passed the quiz. Review incorrect answers to improve further.";
-    return "Needs Improvement. Review the explanations below and try practicing again.";
-  };
-
-  doc.font('Helvetica-Bold')
-     .fontSize(13)
-     .fillColor('#1E293B')
-     .text('Performance Feedback');
-
-  doc.moveDown(0.5);
-  const fbX = 50;
-  const fbY = doc.y;
-  const fbText = getFeedback(attempt.accuracy);
-  
-  doc.rect(fbX, fbY, 495, 45).fill('#EEF2F6');
-  doc.fillColor('#312E81')
-     .font('Helvetica-Oblique')
-     .fontSize(10)
-     .text(fbText, fbX + 15, fbY + 16, { width: 465 });
-
-  doc.y = fbY + 65;
-
-  // Footer & Signatures
-  const footerY = 700;
-  doc.moveTo(50, footerY).lineTo(200, footerY).strokeColor('#94A3B8').stroke();
-  doc.moveTo(395, footerY).lineTo(545, footerY).strokeColor('#94A3B8').stroke();
-
-  doc.fillColor('#64748B')
-     .font('Helvetica')
-     .fontSize(9)
-     .text('Platform Administrator', 50, footerY + 10, { width: 150, align: 'center' });
-
-  doc.text('Verification Code', 395, footerY + 10, { width: 150, align: 'center' });
-
-  // Verification ID
-  doc.fillColor('#4F46E5')
-     .font('Helvetica-Bold')
-     .fontSize(8)
-     .text(`ID: ${attempt._id.toString()}`, 395, footerY + 25, { width: 150, align: 'center' });
-
-  // --- Page 2+: Detailed Question-by-Question Breakdown ---
   const questions = quiz?.questions || [];
-  if (questions.length > 0) {
-    // Add page added event listener for all future pages to draw headers, footers & borders
-    doc.on('pageAdded', () => {
-      doc.rect(20, 20, 555, 800).strokeColor('#4F46E5').lineWidth(2).stroke();
-      doc.rect(25, 25, 545, 790).strokeColor('#E2E8F0').lineWidth(0.5).stroke();
-      
-      // Running Header
-      doc.fillColor('#64748B')
-         .font('Helvetica-Bold')
-         .fontSize(8)
-         .text('CODEARENA SCORECARD - DETAILED REPORT', 50, 35);
-      
-      doc.moveTo(50, 45).lineTo(545, 45).strokeColor('#E2E8F0').lineWidth(0.5).stroke();
-      
-      // Reset doc context
-      doc.font('Helvetica').fontSize(10).fillColor('#1F2937');
-      doc.y = 65;
-    });
-
-    // Move to next page for questions breakdown
-    doc.addPage();
-
-    doc.fillColor('#1E1B4B')
-       .font('Helvetica-Bold')
-       .fontSize(16)
-       .text('Detailed Question Breakdown', { align: 'left' });
-    
-    doc.moveDown(0.5);
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#E2E8F0').lineWidth(1).stroke();
-    doc.moveDown(1);
+  if (questions.length) {
+    doc.addPage(); pageFrame(doc, 'DETAILED REVIEW');
+    doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(24).text('Question review', 48, 86);
+    doc.fillColor(C.muted).font('Helvetica').fontSize(9).text(`${questions.length} questions  /  Correct answers and explanations`, 48, 120);
+    doc.y = 156;
 
     questions.forEach((q, index) => {
-      // Check for page overflow (each question card usually needs 120-180 points)
-      if (doc.y > 660) {
-        doc.addPage();
-      }
+      const answer = attempt.answers?.find((a) => String(a.questionId) === String(q._id));
+      const correct = Boolean(answer?.isCorrect);
+      if (doc.y > 650) { doc.addPage(); pageFrame(doc, 'DETAILED REVIEW'); doc.y = 88; }
+      const top = doc.y;
+      doc.rect(48, top, 499, 25).fill(correct ? '#EAF4E9' : '#F8EAE8');
+      doc.fillColor(correct ? C.good : C.bad).font('Helvetica-Bold').fontSize(8).text(`Q${index + 1}  ${correct ? 'CORRECT' : 'INCORRECT'}`, 60, top + 9, { characterSpacing: .6 });
+      doc.y = top + 38;
+      doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(10.5).text(q.questionText, 48, doc.y, { width: 499, lineGap: 3 });
+      doc.moveDown(.5);
 
-      const userAns = attempt.answers?.find(ans => ans.questionId.toString() === q._id.toString());
-      const isCorrect = userAns ? userAns.isCorrect : false;
-
-      // Question Title
-      doc.font('Helvetica-Bold')
-         .fontSize(11)
-         .fillColor(isCorrect ? '#10B981' : '#EF4444')
-         .text(`Q${index + 1}. [${isCorrect ? 'Correct' : 'Incorrect'}] `, { continued: true })
-         .fillColor('#1F2937')
-         .text(`${q.questionText} `, { continued: true })
-         .font('Helvetica')
-         .fontSize(9)
-         .fillColor('#64748B')
-         .text(`(${q.difficulty.toUpperCase()} | Topic: ${q.topic})`);
-      
-      doc.moveDown(0.5);
-
-      // Render options/answers based on type
-      if (q.questionType === 'mcq') {
-        q.options.forEach((opt, optIdx) => {
-          const isSelected = userAns && userAns.selectedOption === optIdx;
-          const isCorrectOpt = q.correctOption === optIdx;
-
-          let prefix = '[ ] ';
-          let color = '#475569';
-          if (isCorrectOpt) {
-            prefix = '[✓] ';
-            color = '#10B981';
-          } else if (isSelected) {
-            prefix = '[x] ';
-            color = '#EF4444';
-          }
-
-          doc.fillColor(color)
-             .font(isCorrectOpt || isSelected ? 'Helvetica-Bold' : 'Helvetica')
-             .fontSize(9.5)
-             .text(`   ${prefix}${opt}`, { indent: 12 });
+      const selected = (idx) => answer?.selectedOption === idx || answer?.selectedOptions?.includes(idx);
+      if (q.questionType === 'mcq' || q.questionType === 'multiple_correct') {
+        q.options.forEach((option, idx) => {
+          const isAnswer = q.questionType === 'mcq' ? q.correctOption === idx : q.correctAnswers?.includes(idx);
+          doc.fillColor(isAnswer ? C.good : selected(idx) ? C.bad : C.muted).font(isAnswer || selected(idx) ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).text(`${isAnswer ? '[correct]' : selected(idx) ? '[selected]' : '[ ]'}  ${option}`, 60, doc.y, { width: 475 });
         });
-      } 
-      else if (q.questionType === 'multiple_correct') {
-        q.options.forEach((opt, optIdx) => {
-          const isSelected = userAns && userAns.selectedOptions?.includes(optIdx);
-          const isCorrectOpt = q.correctAnswers?.includes(optIdx);
-
-          let prefix = '[ ] ';
-          let color = '#475569';
-          if (isCorrectOpt) {
-            prefix = '[✓] ';
-            color = '#10B981';
-          } else if (isSelected) {
-            prefix = '[x] ';
-            color = '#EF4444';
-          }
-
-          doc.fillColor(color)
-             .font(isCorrectOpt || isSelected ? 'Helvetica-Bold' : 'Helvetica')
-             .fontSize(9.5)
-             .text(`   ${prefix}${opt}`, { indent: 12 });
-        });
-      }
-      else if (q.questionType === 'true_false') {
-        const userVal = userAns ? userAns.booleanAnswer : null;
-        const correctVal = q.answer;
-
-        ['True', 'False'].forEach(valStr => {
-          const valBool = valStr === 'True';
-          const isSelected = userVal === valBool;
-          const isCorrectOpt = correctVal === valBool;
-
-          let prefix = '[ ] ';
-          let color = '#475569';
-          if (isCorrectOpt) {
-            prefix = '[✓] ';
-            color = '#10B981';
-          } else if (isSelected) {
-            prefix = '[x] ';
-            color = '#EF4444';
-          }
-
-          doc.fillColor(color)
-             .font(isCorrectOpt || isSelected ? 'Helvetica-Bold' : 'Helvetica')
-             .fontSize(9.5)
-             .text(`   ${prefix}${valStr}`, { indent: 12 });
-        });
-      }
-      else if (q.questionType === 'fill_blank') {
-        const userVal = userAns ? userAns.textAnswer : '';
-        const correctVal = q.correctAnswerText;
-
-        doc.fillColor('#1E293B').font('Helvetica').fontSize(9.5);
-        doc.text(`   Your Response: `, { continued: true })
-           .font('Helvetica-Bold')
-           .fillColor(isCorrect ? '#10B981' : '#EF4444')
-           .text(userVal || '(No Response)', { continued: true })
-           .fillColor('#1E293B')
-           .font('Helvetica')
-           .text(`  |  Correct Answer: `, { continued: true })
-           .font('Helvetica-Bold')
-           .fillColor('#10B981')
-           .text(correctVal);
-      }
-
-      doc.moveDown(0.5);
-
-      // Explanation Box
-      if (q.explanation) {
-        const explanationText = `Explanation: ${q.explanation}`;
-        const boxX = 60;
-        const boxY = doc.y;
-        const boxWidth = 485;
-        
-        // Estimate height
-        const textHeight = doc.heightOfString(explanationText, { width: boxWidth - 20 }) + 10;
-        
-        doc.rect(boxX, boxY, boxWidth, textHeight).fill('#F8FAFC');
-        doc.fillColor('#475569')
-           .font('Helvetica-Oblique')
-           .fontSize(8.5)
-           .text(explanationText, boxX + 10, boxY + 5, { width: boxWidth - 20 });
-        
-        doc.y = boxY + textHeight + 10;
+      } else if (q.questionType === 'true_false') {
+        doc.fillColor(C.muted).font('Helvetica').fontSize(9).text(`Your answer: ${answer?.booleanAnswer ?? 'No response'}   Correct answer: ${q.answer}`, 60, doc.y);
       } else {
-        doc.moveDown(0.5);
+        doc.fillColor(C.muted).font('Helvetica').fontSize(9).text(`Your answer: ${answer?.textAnswer || 'No response'}`, 60, doc.y);
+        doc.fillColor(C.good).font('Helvetica-Bold').text(`Correct answer: ${q.correctAnswerText}`, 60, doc.y);
       }
-
-      // Divider line between questions
-      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#E2E8F0').lineWidth(0.5).stroke();
-      doc.moveDown(0.8);
+      if (q.explanation) { doc.moveDown(.5); doc.rect(60, doc.y, 475, doc.heightOfString(q.explanation, { width: 445 }) + 22).fill(C.soft); doc.fillColor(C.muted).font('Helvetica-Oblique').fontSize(8.5).text(q.explanation, 75, doc.y + 11, { width: 445, lineGap: 2 }); doc.y += 12; }
+      doc.moveDown(1.3);
     });
   }
 
-  // Finalize PDF Document
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i += 1) {
+    doc.switchToPage(i);
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7).text(`${i + 1} / ${range.count}`, 480, 800, { width: 67, align: 'right' });
+  }
   doc.end();
 };
