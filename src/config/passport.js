@@ -22,12 +22,14 @@ export const configurePassport = () => {
       },
       async (req, accessToken, refreshToken, profile, done) => {
         try {
+          const verifiedEmail = profile.emails?.find(email => email.verified === true)?.value || (profile._json?.email_verified === true ? profile.emails?.[0]?.value : null);
+          if (!verifiedEmail) return done(null, false, { message: 'A verified Google email is required' });
           // Check if user already exists
           let user = await User.findOne({ googleId: profile.id });
 
           if (!user) {
             // Check if user exists with the same email
-            const email = profile.emails?.[0]?.value;
+            const email = verifiedEmail.trim().toLowerCase();
             if (email) {
               user = await User.findOne({ email });
             }

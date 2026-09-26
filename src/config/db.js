@@ -7,6 +7,8 @@ export const connectDB = async () => {
   try {
     const mongoUri = process.env.MONGO_URI;
 
+    if (!mongoUri && process.env.NODE_ENV === 'production') throw new Error('MONGO_URI is required in production');
+
     if (mongoUri) {
       console.log('Connecting to MongoDB Atlas / Local...');
       await mongoose.connect(mongoUri);

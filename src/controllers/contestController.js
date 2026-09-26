@@ -1,3 +1,4 @@
+import { gradeQuiz, validQuizSubmission } from '../services/grading.js';
 import Contest from '../models/Contest.js';
 import CodingChallenge from '../models/CodingChallenge.js';
 import Quiz from '../models/Quiz.js';
@@ -12,6 +13,8 @@ import { sendLeaderboardUpdate } from '../sockets/contestSocket.js';
 export const createContest = async (req, res, next) => {
   try {
     const { title, startTime, endTime, contestType, codingChallenges, quizzes } = req.body;
+
+    if (!Number.isFinite(Date.parse(startTime)) || !Number.isFinite(Date.parse(endTime)) || new Date(endTime) <= new Date(startTime)) return res.status(400).json({ success: false, message: 'End time must be after a valid start time' });
 
     const contest = await Contest.create({
       title,
@@ -75,6 +78,8 @@ export const joinContest = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Contest not found' });
     }
 
+    if (new Date() >= new Date(contest.endTime)) return res.status(400).json({ success: false, message: 'Contest has ended' });
+
     // Add to participants list
     if (!contest.participants.includes(req.user.id)) {
       contest.participants.push(req.user.id);
@@ -96,18 +101,12 @@ export const joinContest = async (req, res, next) => {
       }
 
       await contest.save();
+      await User.updateOne({ _id: req.user.id }, { $inc: { contestsParticipated: 1 } });
 
       // Trigger socket leaderboard update
       if (req.io) {
         await sendLeaderboardUpdate(req.io, contest._id);
       }
-    }
-
-    // Update user stats
-    const user = await User.findById(req.user.id);
-    if (user) {
-      user.contestsParticipated += 1;
-      await user.save();
     }
 
     res.status(200).json({ success: true, message: 'Joined contest successfully' });
@@ -122,14 +121,18 @@ export const joinContest = async (req, res, next) => {
 export const submitContestChallenge = async (req, res, next) => {
   try {
     const { code, language, runOnly } = req.body;
+    if (typeof code !== 'string' || !code.trim() || typeof language !== 'string' || (runOnly !== undefined && typeof runOnly !== 'boolean')) return res.status(400).json({ success: false, message: 'Code, language, and a boolean runOnly value are required' });
     const contest = await Contest.findById(req.params.id);
 
     if (!contest) {
       return res.status(404).json({ success: false, message: 'Contest not found' });
     }
 
+    if (!contest.participants.some(id => String(id) === String(req.user.id))) return res.status(403).json({ success: false, message: 'Join this contest before submitting' });
+    if (!contest.codingChallenges.some(id => String(id) === String(req.params.challengeId))) return res.status(400).json({ success: false, message: 'Problem is not part of this contest' });
+
     const now = new Date();
-    if (now < new Date(contest.startTime) || now > new Date(contest.endTime)) {
+    if (now < new Date(contest.startTime) || now >= new Date(contest.endTime)) {
       return res.status(400).json({ success: false, message: 'Contest is not active' });
     }
 
@@ -137,6 +140,8 @@ export const submitContestChallenge = async (req, res, next) => {
     if (!challenge) {
       return res.status(404).json({ success: false, message: 'Challenge not found' });
     }
+
+    if (!challenge.supportedLanguages.includes(language)) return res.status(400).json({ success: false, message: 'Unsupported challenge language' });
 
     // Process code
     const boilerplate = challenge.boilerplateCode?.[language] || '';
@@ -186,11 +191,7 @@ export const submitContestChallenge = async (req, res, next) => {
         pointsAwarded = challengeScore;
 
         // Add points to user profile
-        const user = await User.findById(req.user.id);
-        if (user) {
-          user.totalPoints += challengeScore;
-          await user.save();
-        }
+        await User.updateOne({ _id: req.user.id }, { $inc: { totalPoints: challengeScore } });
       }
 
       await contest.save();
@@ -255,14 +256,18 @@ export const deleteContest = async (req, res, next) => {
 export const submitContestQuiz = async (req, res, next) => {
   try {
     const { answers, timeTaken } = req.body;
+    if (!validQuizSubmission(answers, timeTaken)) return res.status(400).json({ success: false, message: 'Invalid answers or time taken' });
     const contest = await Contest.findById(req.params.id);
 
     if (!contest) {
       return res.status(404).json({ success: false, message: 'Contest not found' });
     }
 
+    if (!contest.participants.some(id => String(id) === String(req.user.id))) return res.status(403).json({ success: false, message: 'Join this contest before submitting' });
+    if (!contest.quizzes.some(id => String(id) === String(req.params.quizId))) return res.status(400).json({ success: false, message: 'Problem is not part of this contest' });
+
     const now = new Date();
-    if (now < new Date(contest.startTime) || now > new Date(contest.endTime)) {
+    if (now < new Date(contest.startTime) || now >= new Date(contest.endTime)) {
       return res.status(400).json({ success: false, message: 'Contest is not active' });
     }
 
@@ -282,65 +287,7 @@ export const submitContestQuiz = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'You have already attempted this quiz.' });
     }
 
-    let correctCount = 0;
-    const gradedAnswers = [];
-
-    // Calculate score
-    quiz.questions.forEach((question) => {
-      const userAns = answers.find(
-        (ans) => ans.questionId.toString() === question._id.toString()
-      );
-
-      let isCorrect = false;
-      let selectedOption = null;
-      let selectedOptions = [];
-      let booleanAnswer = null;
-      let textAnswer = '';
-
-      if (userAns) {
-        selectedOption = userAns.selectedOption;
-        selectedOptions = userAns.selectedOptions || [];
-        booleanAnswer = userAns.booleanAnswer;
-        textAnswer = userAns.textAnswer || '';
-
-        // MCQ grading
-        if (question.questionType === 'mcq') {
-          isCorrect = userAns.selectedOption === question.correctOption;
-        }
-        // Multiple Correct grading
-        else if (question.questionType === 'multiple_correct') {
-          const uAns = [...selectedOptions].sort();
-          const cAns = [...question.correctAnswers].sort();
-          isCorrect = uAns.length === cAns.length && uAns.every((val, index) => val === cAns[index]);
-        }
-        // True / False grading
-        else if (question.questionType === 'true_false') {
-          isCorrect = userAns.booleanAnswer === question.answer;
-        }
-        // Fill in the blank grading
-        else if (question.questionType === 'fill_blank') {
-          isCorrect = userAns.textAnswer?.trim().toLowerCase() === question.correctAnswerText?.trim().toLowerCase();
-        }
-      }
-
-      if (isCorrect) {
-        correctCount++;
-      }
-
-      gradedAnswers.push({
-        questionId: question._id,
-        selectedOption,
-        selectedOptions,
-        booleanAnswer,
-        textAnswer,
-        isCorrect
-      });
-    });
-
-    const totalQuestions = quiz.questions.length;
-    const accuracy = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
-    const marksPerQuestion = quiz.totalMarks / (totalQuestions || 1);
-    const score = Math.round(correctCount * marksPerQuestion);
+    const { gradedAnswers, correctCount, totalQuestions, accuracy, score } = gradeQuiz(quiz, answers);
 
     // Save attempt
     const attempt = await QuizAttempt.create({
@@ -352,14 +299,7 @@ export const submitContestQuiz = async (req, res, next) => {
       timeTaken
     });
 
-    // Update user statistics
-    const user = await User.findById(req.user.id);
-    if (user) {
-      user.quizzesAttempted += 1;
-      user.totalPoints += score;
-      user.streak += 1;
-      await user.save();
-    }
+    await User.updateOne({ _id: req.user.id }, { $inc: { quizzesAttempted: 1, totalPoints: score, streak: 1 } });
 
     // Find or create user's leaderboard entry
     let entry = contest.leaderboard.find(

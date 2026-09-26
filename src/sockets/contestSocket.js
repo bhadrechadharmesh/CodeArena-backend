@@ -1,61 +1,38 @@
+import jwt from 'jsonwebtoken';
+import { JWT_SECRET } from '../config/token.js';
 import Contest from '../models/Contest.js';
 import User from '../models/User.js';
 
 export const configureSockets = (io) => {
-  io.on('connection', (socket) => {
-    console.log(`Socket connected: ${socket.id}`);
-
-    // Join contest room
-    socket.on('join_contest', async ({ contestId, userId }) => {
+  io.use(async (socket, next) => {
+    try {
+      const token = socket.handshake.auth?.token;
+      if (!token) return next(new Error('Authentication required'));
+      const decoded = jwt.verify(token, JWT_SECRET);
+      const user = await User.findById(decoded.id);
+      if (!user?.isVerified || (user.role === 'teacher' && !user.isApproved)) return next(new Error('Account not authorized'));
+      socket.user = user;
+      next();
+    } catch { next(new Error('Invalid session')); }
+  });
+  io.on('connection', socket => {
+    socket.on('join_contest', async (payload = {}) => {
       try {
-        const roomName = `contest_${contestId}`;
-        socket.join(roomName);
-        console.log(`User ${userId} joined room ${roomName}`);
-
-        // Add user as participant if not already present
-        const contest = await Contest.findById(contestId);
-        if (contest && !contest.participants.includes(userId)) {
-          contest.participants.push(userId);
-          // Initialize leaderboard entry if not exists
-          const existingEntry = contest.leaderboard.find(
-            (entry) => entry.userId.toString() === userId.toString()
-          );
-          if (!existingEntry) {
-            contest.leaderboard.push({
-              userId,
-              score: 0,
-              penaltyTime: 0,
-              submissionsCount: 0,
-              solvedChallenges: [],
-              completedQuizzes: []
-            });
-          }
-          await contest.save();
-        }
-
-        // Send initial leaderboard
-        await sendLeaderboardUpdate(io, contestId);
-      } catch (err) {
-        console.error('Socket join_contest error:', err.message);
-      }
+        const contest = await Contest.findById(payload.contestId);
+        const allowed = contest && (socket.user.role === 'admin' || String(contest.creatorId) === String(socket.user._id) || contest.participants.some(id => String(id) === String(socket.user._id)));
+        if (!allowed) return socket.emit('contest_error', { message: 'Join the contest before subscribing to standings' });
+        await socket.join('contest_' + contest._id);
+        await sendLeaderboardUpdate(io, contest._id);
+      } catch { socket.emit('contest_error', { message: 'Unable to load contest standings' }); }
     });
-
-    socket.on('leave_contest', ({ contestId, userId }) => {
-      const roomName = `contest_${contestId}`;
-      socket.leave(roomName);
-      console.log(`User ${userId} left room ${roomName}`);
-    });
-
-    socket.on('disconnect', () => {
-      console.log(`Socket disconnected: ${socket.id}`);
-    });
+    socket.on('leave_contest', (payload = {}) => { if (payload?.contestId) socket.leave('contest_' + payload.contestId); });
   });
 };
 
 export const sendLeaderboardUpdate = async (io, contestId) => {
   try {
     const contest = await Contest.findById(contestId)
-      .populate('leaderboard.userId', 'name email college totalPoints')
+      .populate('leaderboard.userId', 'name college totalPoints')
       .exec();
 
     if (!contest) return;

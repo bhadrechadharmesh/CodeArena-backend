@@ -20,8 +20,8 @@ router.route('/:id')
   .get(protect, getContestById)
   .delete(protect, authorize('teacher', 'admin'), deleteContest);
 
-router.post('/:id/join', protect, joinContest);
-router.post('/:id/submit-challenge/:challengeId', protect, submitContestChallenge);
-router.post('/:id/submit-quiz/:quizId', protect, submitContestQuiz);
+router.post('/:id/join', protect, authorize('student'), joinContest);
+router.post('/:id/submit-challenge/:challengeId', protect, authorize('student'), submitContestChallenge);
+router.post('/:id/submit-quiz/:quizId', protect, authorize('student'), submitContestQuiz);
 
 export default router;

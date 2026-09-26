@@ -1,3 +1,5 @@
+import { JWT_SECRET } from '../config/token.js';
+import { authLimiter, validateAuthInput } from '../middlewares/security.js';
 import express from 'express';
 import passport from 'passport';
 import jwt from 'jsonwebtoken';
@@ -5,6 +7,8 @@ import { registerUser, loginUser, getMe, logoutUser, verifyOtp, resendOtp, forgo
 import { protect, authorize } from '../middlewares/auth.js';
 
 const router = express.Router();
+router.use(validateAuthInput);
+router.use(['/register', '/login', '/verify-otp', '/resend-otp', '/forgot-password', '/verify-reset-otp', '/reset-password'], authLimiter);
 
 router.post('/register', registerUser);
 router.post('/verify-otp', verifyOtp);
@@ -19,6 +23,11 @@ router.post('/logout', protect, logoutUser);
 // Admin teacher management routes
 router.get('/admin/teachers', protect, authorize('admin'), getTeachers);
 router.put('/admin/teachers/:id/approve', protect, authorize('admin'), approveTeacher);
+
+router.use(['/google', '/google/callback'], (req, res, next) => {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return res.status(503).json({ success: false, message: 'Google sign-in is not configured' });
+  next();
+});
 
 // Google OAuth initiating route
 router.get(
@@ -40,13 +49,13 @@ router.get(
     // Generate JWT token for Google authenticated user
     const token = jwt.sign(
       { id: req.user._id },
-      process.env.JWT_SECRET || 'fallback_secret_key_123',
+      JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '30d' }
     );
 
     // Redirect to frontend app dashboard with JWT token
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    res.redirect(`${frontendUrl}/oauth-callback?token=${token}`);
+    res.redirect(`${frontendUrl}/auth/callback?token=${token}`);
   }
 );
 

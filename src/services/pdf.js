@@ -1,105 +1,114 @@
 import PDFDocument from 'pdfkit';
 
-const C = { ink: '#181A1B', muted: '#687169', line: '#DCE1DC', paper: '#FFFFFF', soft: '#F4F6F3', accent: '#B9F227', good: '#397A46', bad: '#B33B32' };
-
-const feedbackFor = (accuracy) => {
-  if (accuracy >= 90) return 'Exceptional result. You demonstrated strong command of the material.';
-  if (accuracy >= 75) return 'Strong result. Review the missed questions to close the remaining gaps.';
-  if (accuracy >= 50) return 'Solid foundation. Use the detailed review to target the topics that need work.';
-  return 'This attempt identified useful gaps. Review the explanations, practise, and try again.';
-};
-
-const pageFrame = (doc, label = 'PERFORMANCE REPORT') => {
-  doc.rect(0, 0, 595.28, 841.89).fill(C.paper);
-  doc.rect(0, 0, 595.28, 10).fill(C.accent);
-  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(12).text('codearena.', 48, 32);
-  doc.fillColor(C.muted).font('Helvetica').fontSize(7).text(label, 380, 36, { width: 167, align: 'right', characterSpacing: 1.2 });
-  doc.moveTo(48, 58).lineTo(547, 58).strokeColor(C.line).lineWidth(1).stroke();
-};
+const C = { ink: '#272722', muted: '#72736A', line: '#DEDED5', soft: '#F7F6F2', accent: '#B4492D', good: '#348264', bad: '#B4492D' };
 
 export const generateScorecardPDF = (res, attempt, user, quiz) => {
-  const doc = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true, info: { Title: `${quiz?.title || 'Quiz'} - CodeArena Scorecard`, Author: 'CodeArena' } });
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 86, bottom: 70, left: 48, right: 48 }, bufferPages: true, info: { Title: `${quiz?.title || 'Quiz'} - Scorecard`, Author: 'CodeArena' } });
   doc.pipe(res);
-  pageFrame(doc);
+  const width = doc.page.width - 96;
+  const bottom = doc.page.height - 70;
+  const frame = () => {
+    doc.save();
+    doc.rect(48, 32, 7, 7).fill(C.accent);
+    doc.font('Helvetica-Bold').fontSize(12).fillColor(C.ink).text('codearena.', 64, 29, { lineBreak: false });
+    doc.font('Courier').fontSize(7).fillColor(C.muted).text('ASSESSMENT / SCORECARD', 340, 32, { width: 207, align: 'right', lineBreak: false });
+    doc.moveTo(48, 58).lineTo(547, 58).strokeColor(C.line).lineWidth(0.7).stroke();
+    doc.restore();
+    doc.x = 48; doc.y = 86;
+  };
+  frame();
+  doc.on('pageAdded', frame);
+  const ensure = height => { if (doc.y + height > bottom) doc.addPage(); };
+  const text = (value, size = 10, font = 'Helvetica', color = C.ink, indent = 0) => {
+    doc.font(font).fontSize(size).fillColor(color);
+    doc.text(String(value ?? 'Not available'), 48 + indent, doc.y, { width: width - indent, lineGap: 4 });
+  };
+  const label = value => text(value, 8, 'Courier', C.muted);
+  const rule = () => { doc.moveTo(48, doc.y).lineTo(547, doc.y).strokeColor(C.line).lineWidth(0.6).stroke(); doc.y += 16; };
 
-  const submitted = new Date(attempt.submittedAt || Date.now());
-  const totalMarks = quiz?.totalMarks || 0;
-  const minutes = Math.floor((attempt.timeTaken || 0) / 60);
-  const seconds = (attempt.timeTaken || 0) % 60;
-  const status = attempt.accuracy >= 50 ? 'PASSED' : 'COMPLETED';
-
-  doc.fillColor(C.muted).font('Helvetica').fontSize(8).text('SCORECARD', 48, 90, { characterSpacing: 1.5 });
-  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(30).text(quiz?.title || 'Quiz result', 48, 110, { width: 430, lineGap: 3 });
-  doc.fillColor(C.muted).font('Helvetica').fontSize(10).text(`${quiz?.category || 'General'}  /  ${(quiz?.difficulty || 'Not specified').toUpperCase()}`, 48, doc.y + 8);
-
-  const statusY = 190;
-  doc.rect(48, statusY, 499, 142).fill(C.ink);
-  doc.rect(48, statusY, 8, 142).fill(C.accent);
-  doc.fillColor('#AEB7B0').font('Helvetica').fontSize(8).text('FINAL SCORE', 76, statusY + 24, { characterSpacing: 1 });
-  doc.fillColor(C.paper).font('Helvetica-Bold').fontSize(36).text(`${attempt.score}`, 76, statusY + 42, { continued: true }).fontSize(14).fillColor('#AEB7B0').text(`  / ${totalMarks}`);
-  doc.fillColor(C.ink).rect(405, statusY + 24, 112, 28).fill(C.accent);
-  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(9).text(status, 405, statusY + 34, { width: 112, align: 'center', characterSpacing: 1 });
-  [['ACCURACY', `${attempt.accuracy}%`], ['TIME', `${minutes}m ${seconds}s`]].forEach(([label, value], i) => {
-    const x = 76 + i * 164;
-    doc.fillColor('#AEB7B0').font('Helvetica').fontSize(7).text(label, x, statusY + 102, { characterSpacing: 1 });
-    doc.fillColor(C.paper).font('Helvetica-Bold').fontSize(13).text(value, x, statusY + 116);
+  label('RESULT / SUBMITTED ATTEMPT');
+  doc.y += 12;
+  text(quiz?.title || 'Quiz result', 30, 'Times-Roman');
+  doc.y += 8;
+  text(`${quiz?.category || 'General'} / ${quiz?.difficulty || 'Not specified'}`, 10, 'Helvetica', C.muted);
+  doc.y += 24;
+  ensure(138);
+  const scoreY = doc.y;
+  doc.rect(48, scoreY, width, 120).fill(C.soft);
+  doc.rect(48, scoreY, 3, 120).fill(C.accent);
+  const seconds = Math.max(0, Math.floor(Number(attempt.timeTaken) || 0));
+  const stats = [['SCORE', `${attempt.score ?? 0} / ${quiz?.totalMarks ?? '—'}`], ['ACCURACY', `${attempt.accuracy ?? 0}%`], ['TIME TAKEN', `${Math.floor(seconds / 60)}m ${seconds % 60}s`]];
+  stats.forEach(([heading, value], index) => {
+    const x = 70 + index * 160;
+    doc.font('Courier').fontSize(8).fillColor(C.muted).text(heading, x, scoreY + 23, { width: 145 });
+    doc.font('Helvetica').fontSize(index === 0 ? 27 : 22).fillColor(index === 0 ? C.accent : C.ink).text(value, x, scoreY + 48, { width: 145 });
   });
-
-  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(12).text('Candidate', 48, 370);
-  const details = [['Name', user?.name || 'Not available'], ['Email', user?.email || 'Not available'], ['Institution', user?.college || 'Not specified'], ['Submitted', submitted.toLocaleString('en-IN')]];
-  details.forEach(([label, value], i) => {
-    const y = 398 + i * 34;
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8).text(label.toUpperCase(), 48, y, { width: 100, characterSpacing: .7 });
-    doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(9.5).text(String(value), 162, y, { width: 385 });
-    doc.moveTo(48, y + 20).lineTo(547, y + 20).strokeColor(C.line).lineWidth(.6).stroke();
-  });
-
-  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(12).text('Assessment note', 48, 560);
-  doc.rect(48, 584, 499, 68).fill(C.soft);
-  doc.fillColor(C.ink).font('Helvetica').fontSize(10).text(feedbackFor(attempt.accuracy), 66, 604, { width: 463, lineGap: 4 });
-  doc.fillColor(C.muted).font('Helvetica').fontSize(7).text('REPORT ID', 48, 710, { characterSpacing: 1 });
-  doc.fillColor(C.ink).font('Courier').fontSize(8).text(String(attempt._id), 48, 724);
-  doc.fillColor(C.muted).font('Helvetica').fontSize(7.5).text('Generated by CodeArena. This report records the result of the submitted attempt.', 48, 772, { width: 499 });
+  doc.y = scoreY + 144;
+  ensure(50); label('01 / CANDIDATE & SESSION'); doc.y += 12;
+  const submitted = new Date(attempt.submittedAt);
+  const details = [['Candidate', user?.name || 'Not available'], ['Email', user?.email || 'Not available'], ['Institution', user?.college || 'Not specified'], ['Submitted (UTC)', Number.isNaN(submitted.getTime()) ? 'Not available' : submitted.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')], ['Report ID', String(attempt._id || attempt.id || 'Not available')]];
+  for (const [heading, value] of details) {
+    doc.font('Helvetica').fontSize(10);
+    const height = Math.max(18, doc.heightOfString(String(value), { width: width - 130, lineGap: 4 }));
+    ensure(height + 25);
+    const y = doc.y;
+    doc.font('Helvetica').fontSize(9).fillColor(C.muted).text(heading, 48, y, { width: 115 });
+    doc.font('Helvetica').fontSize(10).fillColor(C.ink).text(String(value), 178, y, { width: width - 130, lineGap: 4 });
+    doc.y = Math.max(doc.y, y + height) + 12;
+    rule();
+  }
+  ensure(105); doc.y += 10;
+  label('READING THIS REPORT'); doc.y += 8;
+  text('The score records marks earned. Accuracy records the percentage of questions answered correctly. The review below includes your responses, correct answers, and available explanations.', 10, 'Helvetica', C.muted);
 
   const questions = quiz?.questions || [];
   if (questions.length) {
-    doc.addPage(); pageFrame(doc, 'DETAILED REVIEW');
-    doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(24).text('Question review', 48, 86);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(9).text(`${questions.length} questions  /  Correct answers and explanations`, 48, 120);
-    doc.y = 156;
-
-    questions.forEach((q, index) => {
-      const answer = attempt.answers?.find((a) => String(a.questionId) === String(q._id));
-      const correct = Boolean(answer?.isCorrect);
-      if (doc.y > 650) { doc.addPage(); pageFrame(doc, 'DETAILED REVIEW'); doc.y = 88; }
-      const top = doc.y;
-      doc.rect(48, top, 499, 25).fill(correct ? '#EAF4E9' : '#F8EAE8');
-      doc.fillColor(correct ? C.good : C.bad).font('Helvetica-Bold').fontSize(8).text(`Q${index + 1}  ${correct ? 'CORRECT' : 'INCORRECT'}`, 60, top + 9, { characterSpacing: .6 });
-      doc.y = top + 38;
-      doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(10.5).text(q.questionText, 48, doc.y, { width: 499, lineGap: 3 });
-      doc.moveDown(.5);
-
-      const selected = (idx) => answer?.selectedOption === idx || answer?.selectedOptions?.includes(idx);
-      if (q.questionType === 'mcq' || q.questionType === 'multiple_correct') {
-        q.options.forEach((option, idx) => {
-          const isAnswer = q.questionType === 'mcq' ? q.correctOption === idx : q.correctAnswers?.includes(idx);
-          doc.fillColor(isAnswer ? C.good : selected(idx) ? C.bad : C.muted).font(isAnswer || selected(idx) ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).text(`${isAnswer ? '[correct]' : selected(idx) ? '[selected]' : '[ ]'}  ${option}`, 60, doc.y, { width: 475 });
+    doc.addPage();
+    label('02 / QUESTION REVIEW'); doc.y += 10;
+    text('Review your work.', 28, 'Times-Roman');
+    text(`${questions.length} questions / Responses and explanations`, 9, 'Helvetica', C.muted);
+    doc.y += 24;
+    questions.forEach((question, index) => {
+      const answer = attempt.answers?.find(item => String(item.questionId) === String(question._id));
+      const responded = answer && (answer.selectedOption != null || answer.selectedOptions?.length || answer.booleanAnswer != null || answer.textAnswer?.trim());
+      const status = answer?.isCorrect ? 'CORRECT' : responded ? 'INCORRECT' : 'NO RESPONSE';
+      ensure(95); rule();
+      text(`QUESTION ${String(index + 1).padStart(2, '0')} / ${status}`, 8, 'Courier', answer?.isCorrect ? C.good : C.bad);
+      doc.y += 8;
+      text(question.questionText, 11, 'Helvetica-Bold');
+      doc.y += 10;
+      const writeAnswer = (value, color = C.muted) => { ensure(30); text(value, 9, 'Helvetica', color, 12); doc.y += 4; };
+      if (['mcq', 'multiple_correct'].includes(question.questionType)) {
+        (question.options || []).forEach((option, optionIndex) => {
+          const selected = question.questionType === 'mcq' ? answer?.selectedOption === optionIndex : answer?.selectedOptions?.includes(optionIndex);
+          const correct = question.questionType === 'mcq' ? question.correctOption === optionIndex : question.correctAnswers?.includes(optionIndex);
+          const tags = [selected && 'your answer', correct && 'correct answer'].filter(Boolean).join(', ');
+          writeAnswer(`${String.fromCharCode(65 + optionIndex)}. ${option}${tags ? ' [' + tags + ']' : ''}`, correct ? C.good : selected ? C.bad : C.muted);
         });
-      } else if (q.questionType === 'true_false') {
-        doc.fillColor(C.muted).font('Helvetica').fontSize(9).text(`Your answer: ${answer?.booleanAnswer ?? 'No response'}   Correct answer: ${q.answer}`, 60, doc.y);
+        if (!responded) writeAnswer('Your answer: No response');
+      } else if (question.questionType === 'true_false') {
+        writeAnswer(`Your answer: ${answer?.booleanAnswer ?? 'No response'}`);
+        writeAnswer(`Correct answer: ${question.answer ?? 'Not available'}`, C.good);
       } else {
-        doc.fillColor(C.muted).font('Helvetica').fontSize(9).text(`Your answer: ${answer?.textAnswer || 'No response'}`, 60, doc.y);
-        doc.fillColor(C.good).font('Helvetica-Bold').text(`Correct answer: ${q.correctAnswerText}`, 60, doc.y);
+        writeAnswer(`Your answer: ${answer?.textAnswer || 'No response'}`);
+        writeAnswer(`Correct answer: ${question.correctAnswerText || 'Not available'}`, C.good);
       }
-      if (q.explanation) { doc.moveDown(.5); doc.rect(60, doc.y, 475, doc.heightOfString(q.explanation, { width: 445 }) + 22).fill(C.soft); doc.fillColor(C.muted).font('Helvetica-Oblique').fontSize(8.5).text(q.explanation, 75, doc.y + 11, { width: 445, lineGap: 2 }); doc.y += 12; }
-      doc.moveDown(1.3);
+      if (question.explanation) {
+        ensure(60); doc.y += 8; label('EXPLANATION');
+        text(question.explanation, 9, 'Helvetica', C.muted, 12);
+      }
+      doc.y += 22;
     });
   }
-
-  const range = doc.bufferedPageRange();
-  for (let i = range.start; i < range.start + range.count; i += 1) {
-    doc.switchToPage(i);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7).text(`${i + 1} / ${range.count}`, 480, 800, { width: 67, align: 'right' });
+  const pages = doc.bufferedPageRange();
+  for (let index = pages.start; index < pages.start + pages.count; index++) {
+    doc.switchToPage(index);
+    doc.moveTo(48, 788).lineTo(547, 788).strokeColor(C.line).stroke();
+    // Footer is outside the flowing content area; prevent PDFKit adding an extra page.
+    doc.page.margins.bottom = 0;
+    doc.font('Helvetica').fontSize(7).fillColor(C.muted).text('CodeArena / Record of a submitted assessment', 48, 802, { width: 380, lineBreak: false });
+    doc.text(`${index + 1} / ${pages.count}`, 480, 802, { width: 67, align: 'right', lineBreak: false });
   }
   doc.end();
+  return doc;
 };

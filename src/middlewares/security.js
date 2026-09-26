@@ -12,26 +12,21 @@ export const apiLimiter = rateLimit({
   },
 });
 
-// Custom XSS Sanitizer middleware
+// JSON keys containing MongoDB operators are never accepted as user input.
 export const sanitizeInputs = (req, res, next) => {
-  const sanitize = (val) => {
-    if (typeof val === 'string') {
-      return val
-        .replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, '') // Remove scripts
-        .replace(/on\w+="[^"]*"/gi, '') // Remove on-handlers
-        .trim();
-    }
-    if (typeof val === 'object' && val !== null) {
-      for (const key in val) {
-        val[key] = sanitize(val[key]);
-      }
-    }
-    return val;
-  };
+  const unsafe = value => value && typeof value === 'object' && Object.entries(value).some(([key, child]) => key.startsWith('$') || key.includes('.') || ['__proto__', 'constructor', 'prototype'].includes(key) || unsafe(child));
+  if (unsafe(req.body) || unsafe(req.query)) return res.status(400).json({ success: false, message: 'Invalid input keys' });
+  next();
+};
 
-  if (req.body) req.body = sanitize(req.body);
-  if (req.query) req.query = sanitize(req.query);
-  if (req.params) req.params = sanitize(req.params);
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false,
+  message: { success: false, message: 'Too many authentication attempts. Please try again later.' }
+});
 
+export const validateAuthInput = (req, res, next) => {
+  for (const field of ['email', 'password', 'newPassword', 'otp', 'name', 'role']) {
+    if (req.body?.[field] !== undefined && typeof req.body[field] !== 'string') return res.status(400).json({ success: false, message: field + ' must be a string' });
+  }
   next();
 };

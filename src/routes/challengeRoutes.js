@@ -24,6 +24,6 @@ router.route('/:id')
   .get(protect, getChallengeById)
   .delete(protect, authorize('teacher', 'admin'), deleteChallenge);
 
-router.post('/:id/submit', protect, submitChallenge);
+router.post('/:id/submit', protect, authorize('student'), submitChallenge);
 
 export default router;

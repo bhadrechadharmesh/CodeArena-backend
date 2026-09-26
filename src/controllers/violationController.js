@@ -1,3 +1,6 @@
+import Quiz from '../models/Quiz.js';
+import Contest from '../models/Contest.js';
+import CodingChallenge from '../models/CodingChallenge.js';
 import Violation from '../models/Violation.js';
 
 // @desc    Log a proctoring violation
@@ -51,7 +54,16 @@ export const getMyViolations = async (req, res, next) => {
 // @access  Private (Teacher/Admin)
 export const getAllViolations = async (req, res, next) => {
   try {
-    const violations = await Violation.find()
+    let filter = {};
+    if (req.user.role === 'teacher') {
+      const [quizzes, contests, challenges] = await Promise.all([
+        Quiz.find({ creatorId: req.user.id }).select('_id'),
+        Contest.find({ creatorId: req.user.id }).select('_id'),
+        CodingChallenge.find({ creatorId: req.user.id }).select('_id')
+      ]);
+      filter = { $or: [{ quizId: { $in: quizzes.map(item => item._id) } }, { contestId: { $in: contests.map(item => item._id) } }, { challengeId: { $in: challenges.map(item => item._id) } }] };
+    }
+    const violations = await Violation.find(filter)
       .populate('userId', 'name email college')
       .populate('contestId', 'title')
       .populate('quizId', 'title')

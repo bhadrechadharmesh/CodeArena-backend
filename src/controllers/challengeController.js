@@ -71,6 +71,7 @@ export const getChallengeById = async (req, res, next) => {
 export const submitChallenge = async (req, res, next) => {
   try {
     const { code, language, runOnly } = req.body;
+    if (typeof code !== 'string' || !code.trim() || typeof language !== 'string' || (runOnly !== undefined && typeof runOnly !== 'boolean')) return res.status(400).json({ success: false, message: 'Code, language, and a boolean runOnly value are required' });
     const challenge = await CodingChallenge.findById(req.params.id);
 
     if (!challenge) {
@@ -111,12 +112,7 @@ export const submitChallenge = async (req, res, next) => {
       // Points based on difficulty
       pointsAwarded = challenge.difficulty === 'easy' ? 50 : challenge.difficulty === 'medium' ? 100 : 200;
 
-      const user = await User.findById(req.user.id);
-      if (user) {
-        user.totalPoints += pointsAwarded;
-        user.streak += 1;
-        await user.save();
-      }
+
     }
 
     // Format output for student: strip out hidden inputs/outputs in detailed results to prevent cheating!
@@ -144,6 +140,7 @@ export const submitChallenge = async (req, res, next) => {
         totalCount: evaluation.totalCount,
         pointsAwarded
       });
+      if (pointsAwarded) await User.updateOne({ _id: req.user.id }, { $inc: { totalPoints: pointsAwarded, streak: 1 } });
     }
 
     res.status(200).json({

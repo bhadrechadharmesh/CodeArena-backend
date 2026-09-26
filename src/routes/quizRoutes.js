@@ -17,7 +17,7 @@ import { generateScorecardPDF } from '../services/pdf.js';
 import QuizAttempt from '../models/QuizAttempt.js';
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (req, file, cb) => cb(null, ['application/pdf', 'text/plain'].includes(file.mimetype)) });
 
 router.post('/import', protect, authorize('teacher', 'admin'), upload.single('file'), importQuizQuestions);
 
@@ -41,7 +41,7 @@ router.get('/attempts/:id/pdf', protect, async (req, res, next) => {
     }
 
     // Secure access
-    if (attempt.userId._id.toString() !== req.user.id && req.user.role !== 'teacher' && req.user.role !== 'admin') {
+    if (attempt.userId?._id.toString() !== req.user.id && req.user.role !== 'admin' && !(req.user.role === 'teacher' && attempt.quizId?.creatorId?.toString() === req.user.id)) {
       return res.status(403).json({ success: false, message: 'Not authorized to download this scorecard' });
     }
 
@@ -61,6 +61,6 @@ router.route('/:id')
   .put(protect, authorize('teacher', 'admin'), updateQuiz)
   .delete(protect, authorize('teacher', 'admin'), deleteQuiz);
 
-router.post('/:id/attempt', protect, attemptQuiz);
+router.post('/:id/attempt', protect, authorize('student'), attemptQuiz);
 
 export default router;

@@ -10,7 +10,7 @@ import { configureSockets } from './src/sockets/contestSocket.js';
 const PORT = process.env.PORT || 5000;
 
 // Connect to Database
-connectDB();
+await connectDB();
 
 // Create HTTP Server
 const server = http.createServer(app);

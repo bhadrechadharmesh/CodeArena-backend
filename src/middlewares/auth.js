@@ -1,3 +1,4 @@
+import { JWT_SECRET } from '../config/token.js';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
@@ -23,7 +24,7 @@ export const protect = async (req, res, next) => {
 
   try {
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key_123');
+    const decoded = jwt.verify(token, JWT_SECRET);
 
     // Get user from database
     req.user = await User.findById(decoded.id);

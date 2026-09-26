@@ -1,4 +1,5 @@
 export const errorHandler = (err, req, res, next) => {
+  if (res.headersSent) return next(err);
   let error = { ...err };
   error.message = err.message;
 
@@ -26,6 +27,8 @@ export const errorHandler = (err, req, res, next) => {
     error.statusCode = 400;
   }
 
+  if (err.code === 'LIMIT_FILE_SIZE') { error.statusCode = 413; error.message = 'Upload must be 5 MB or smaller'; }
+
   // JWT errors
   if (err.name === 'JsonWebTokenError') {
     error = new Error('Invalid web token');
@@ -37,8 +40,8 @@ export const errorHandler = (err, req, res, next) => {
     error.statusCode = 401;
   }
 
-  res.status(error.statusCode || 500).json({
+  res.status(error.statusCode || err.status || 500).json({
     success: false,
-    message: error.message || 'Server Error',
+    message: (error.statusCode || err.status || 500) >= 500 && process.env.NODE_ENV === 'production' ? 'Server Error' : error.message || 'Server Error',
   });
 };

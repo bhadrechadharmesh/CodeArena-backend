@@ -18,7 +18,7 @@ const violationSchema = new mongoose.Schema({
   },
   challengeId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Challenge',
+    ref: 'CodingChallenge',
     default: null
   },
   violationType: {

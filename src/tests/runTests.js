@@ -612,6 +612,7 @@ Explanation: Node.js is an open-source, cross-platform JavaScript runtime.
     console.error('Test execution failed with error:', error.message);
     console.error(error.stack);
     failed++;
+    process.exitCode = 1;
   } finally {
     await disconnectDB();
   }

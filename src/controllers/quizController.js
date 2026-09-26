@@ -1,3 +1,4 @@
+import { gradeQuiz, validQuizSubmission } from '../services/grading.js';
 import Quiz from '../models/Quiz.js';
 import QuizAttempt from '../models/QuizAttempt.js';
 import User from '../models/User.js';
@@ -80,6 +81,11 @@ export const getQuizById = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Quiz not found' });
     }
 
+    if (req.user.role === 'student' && !quiz.isPublished) {
+      const session = await Contest.exists({ quizzes: quiz._id, participants: req.user.id, startTime: { $lte: new Date() }, endTime: { $gt: new Date() } });
+      if (!session) return res.status(403).json({ success: false, message: 'Quiz is not available' });
+    }
+
     const quizObj = quiz.toObject();
 
     // Security: Strip out answers for students during attempts
@@ -115,7 +121,9 @@ export const updateQuiz = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Not authorized to edit this quiz' });
     }
 
-    quiz = await Quiz.findByIdAndUpdate(req.params.id, req.body, {
+    const fields = ['title', 'description', 'category', 'difficulty', 'duration', 'tags', 'questions', 'totalMarks', 'isPublished'];
+    const changes = Object.fromEntries(fields.filter(key => req.body[key] !== undefined).map(key => [key, req.body[key]]));
+    quiz = await Quiz.findByIdAndUpdate(req.params.id, { $set: changes }, {
       new: true,
       runValidators: true
     });
@@ -170,11 +178,14 @@ export const deleteQuiz = async (req, res, next) => {
 export const attemptQuiz = async (req, res, next) => {
   try {
     const { answers, timeTaken } = req.body; // Array of { questionId, selectedOption, selectedOptions, booleanAnswer, textAnswer }
+    if (!validQuizSubmission(answers, timeTaken)) return res.status(400).json({ success: false, message: 'Invalid answers or time taken' });
     const quiz = await Quiz.findById(req.params.id);
 
     if (!quiz) {
       return res.status(404).json({ success: false, message: 'Quiz not found' });
     }
+
+    if (!quiz.isPublished) return res.status(403).json({ success: false, message: 'Quiz is not published' });
 
     // Check if already attempted
     const existingAttempt = await QuizAttempt.findOne({ userId: req.user.id, quizId: quiz._id });
@@ -182,65 +193,7 @@ export const attemptQuiz = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'You have already attempted this quiz.' });
     }
 
-    let correctCount = 0;
-    const gradedAnswers = [];
-
-    // Calculate score
-    quiz.questions.forEach((question) => {
-      const userAns = answers.find(
-        (ans) => ans.questionId.toString() === question._id.toString()
-      );
-
-      let isCorrect = false;
-      let selectedOption = null;
-      let selectedOptions = [];
-      let booleanAnswer = null;
-      let textAnswer = '';
-
-      if (userAns) {
-        selectedOption = userAns.selectedOption;
-        selectedOptions = userAns.selectedOptions || [];
-        booleanAnswer = userAns.booleanAnswer;
-        textAnswer = userAns.textAnswer || '';
-
-        // MCQ grading
-        if (question.questionType === 'mcq') {
-          isCorrect = userAns.selectedOption === question.correctOption;
-        }
-        // Multiple Correct grading
-        else if (question.questionType === 'multiple_correct') {
-          const uAns = [...selectedOptions].sort();
-          const cAns = [...question.correctAnswers].sort();
-          isCorrect = uAns.length === cAns.length && uAns.every((val, index) => val === cAns[index]);
-        }
-        // True / False grading
-        else if (question.questionType === 'true_false') {
-          isCorrect = userAns.booleanAnswer === question.answer;
-        }
-        // Fill in the blank grading
-        else if (question.questionType === 'fill_blank') {
-          isCorrect = userAns.textAnswer?.trim().toLowerCase() === question.correctAnswerText?.trim().toLowerCase();
-        }
-      }
-
-      if (isCorrect) {
-        correctCount++;
-      }
-
-      gradedAnswers.push({
-        questionId: question._id,
-        selectedOption,
-        selectedOptions,
-        booleanAnswer,
-        textAnswer,
-        isCorrect
-      });
-    });
-
-    const totalQuestions = quiz.questions.length;
-    const accuracy = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
-    const marksPerQuestion = quiz.totalMarks / (totalQuestions || 1);
-    const score = Math.round(correctCount * marksPerQuestion);
+    const { gradedAnswers, correctCount, totalQuestions, accuracy, score } = gradeQuiz(quiz, answers);
 
     // Save attempt
     const attempt = await QuizAttempt.create({
@@ -252,16 +205,7 @@ export const attemptQuiz = async (req, res, next) => {
       timeTaken
     });
 
-    // Update user statistics
-    const user = await User.findById(req.user.id);
-    if (user) {
-      user.quizzesAttempted += 1;
-      // Gain points based on score
-      user.totalPoints += score;
-      // Increment streak
-      user.streak += 1;
-      await user.save();
-    }
+    await User.updateOne({ _id: req.user.id }, { $inc: { quizzesAttempted: 1, totalPoints: score, streak: 1 } });
 
     res.status(201).json({
       success: true,
@@ -309,7 +253,7 @@ export const getQuizAttemptById = async (req, res, next) => {
     }
 
     // Verify access
-    if (attempt.userId._id.toString() !== req.user.id && req.user.role !== 'teacher' && req.user.role !== 'admin') {
+    if (attempt.userId?._id.toString() !== req.user.id && req.user.role !== 'admin' && !(req.user.role === 'teacher' && attempt.quizId?.creatorId?.toString() === req.user.id)) {
       return res.status(403).json({ success: false, message: 'Not authorized to view this attempt' });
     }
 

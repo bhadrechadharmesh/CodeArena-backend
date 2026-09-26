@@ -1,15 +1,17 @@
+import { JWT_SECRET } from '../config/token.js';
+import { randomInt } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import { sendOTPEmail, sendForgotPasswordOTPEmail } from '../services/emailService.js';
 
 // Helper to generate a 6-digit random number OTP
 const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return randomInt(100000, 1000000).toString();
 };
 
 // Helper to generate JWT Token
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET || 'fallback_secret_key_123', {
+  return jwt.sign({ id }, JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '30d',
   });
 };
@@ -25,8 +27,12 @@ export const registerUser = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Please fill in all required fields' });
     }
 
+    if (role && !['student', 'teacher'].includes(role)) {
+      return res.status(400).json({ success: false, message: 'Registration role must be student or teacher' });
+    }
+
     // Check if user exists
-    const userExists = await User.findOne({ email });
+    const userExists = await User.findOne({ email: email.trim().toLowerCase() });
     let user;
 
     if (userExists) {
@@ -65,7 +71,8 @@ export const registerUser = async (req, res, next) => {
     await user.save();
 
     // Send verification email
-    await sendOTPEmail(user.email, otp, user.name);
+    const delivery = await sendOTPEmail(user.email, otp, user.name);
+    if (!delivery.success) return res.status(502).json({ success: false, message: 'Unable to send verification email. Please request a new code later.' });
 
     res.status(200).json({
       success: true,
@@ -91,7 +98,7 @@ export const loginUser = async (req, res, next) => {
     }
 
     // Check for user (must select password since we set select: false in schema)
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({ email: email.trim().toLowerCase() }).select('+password');
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
@@ -110,7 +117,8 @@ export const loginUser = async (req, res, next) => {
       user.otpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
       await user.save();
 
-      await sendOTPEmail(user.email, otp, user.name);
+      const delivery = await sendOTPEmail(user.email, otp, user.name);
+    if (!delivery.success) return res.status(502).json({ success: false, message: 'Unable to send verification email. Please request a new code later.' });
 
       return res.status(400).json({
         success: false,
@@ -162,37 +170,13 @@ export const verifyOtp = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Please provide email and OTP code' });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
     if (user.isVerified) {
-      // If already verified, log them in immediately (unless pending teacher approval)
-      if (user.role === 'teacher' && !user.isApproved) {
-        return res.status(403).json({
-          success: false,
-          message: 'Your teacher account is pending admin approval. Please contact the administrator.',
-        });
-      }
-      const token = generateToken(user._id);
-      return res.status(200).json({
-        success: true,
-        message: 'Email is already verified',
-        token,
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          college: user.college,
-          bio: user.bio,
-          totalPoints: user.totalPoints,
-          streak: user.streak,
-          contestsParticipated: user.contestsParticipated,
-          quizzesAttempted: user.quizzesAttempted,
-        }
-      });
+      return res.status(400).json({ success: false, message: 'Email is already verified. Please sign in with your password.' });
     }
 
     // Verify OTP matching and expiry
@@ -250,7 +234,7 @@ export const resendOtp = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Please provide an email address' });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -265,7 +249,8 @@ export const resendOtp = async (req, res, next) => {
     await user.save();
 
     // Send email
-    await sendOTPEmail(user.email, otp, user.name);
+    const delivery = await sendOTPEmail(user.email, otp, user.name);
+    if (!delivery.success) return res.status(502).json({ success: false, message: 'Unable to send verification email. Please request a new code later.' });
 
     res.status(200).json({
       success: true,
@@ -327,7 +312,7 @@ export const forgotPassword = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Please provide an email address' });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user) {
       return res.status(404).json({ success: false, message: 'No account found with this email address' });
     }
@@ -348,7 +333,8 @@ export const forgotPassword = async (req, res, next) => {
     await user.save();
 
     // Send reset OTP email
-    await sendForgotPasswordOTPEmail(user.email, otp, user.name);
+    const delivery = await sendForgotPasswordOTPEmail(user.email, otp, user.name);
+    if (!delivery.success) return res.status(502).json({ success: false, message: 'Unable to send password reset email. Please try again later.' });
 
     res.status(200).json({
       success: true,
@@ -370,7 +356,7 @@ export const verifyResetOtp = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Please provide email and OTP code' });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -404,7 +390,7 @@ export const resetPassword = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
     }
 
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({ email: email.trim().toLowerCase() }).select('+password');
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -436,7 +422,7 @@ export const resetPassword = async (req, res, next) => {
 // @access  Private (Admin)
 export const getTeachers = async (req, res, next) => {
   try {
-    const teachers = await User.find({ role: 'teacher' }).sort({ createdAt: -1 });
+    const teachers = await User.find({ role: 'teacher' }).select('name email college isVerified isApproved createdAt').sort({ createdAt: -1 });
     res.status(200).json({
       success: true,
       teachers,
@@ -462,7 +448,7 @@ export const approveTeacher = async (req, res, next) => {
       { _id: id, role: 'teacher' },
       { isApproved },
       { new: true }
-    );
+    ).select('name email college isVerified isApproved createdAt');
 
     if (!teacher) {
       return res.status(404).json({ success: false, message: 'Teacher not found' });
